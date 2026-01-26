@@ -1,0 +1,203 @@
+@import "tailwindcss";
+
+/* Enable dark mode via .dark wrapper */
+@custom-variant dark (&:is(.dark *));
+
+/* Light theme defaults */
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+/* Define your theme */
+@theme inline {
+  /* Default  */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* Custom */
+  --font-jaini: "Jaini", sans-serif;
+
+  --color-dark-bg: #1a202c;
+  --color-dark-card: #2d3748;
+  --color-dark-text: #e2e8f0;
+
+  --color-light-bg: #f7fafc;
+  --color-light-card: #ffffff;
+  --color-light-text: #1a202c;
+
+  --color-primary: #ef4581;
+  --color-primary-light: #f4669f;
+  --color-primary-lighter: #f998bf;
+  --color-primary-dark: #d83d73;
+  --color-primary-darker: #b2335f;
+
+  --color-secondary: #fdcbe0;
+  --color-secondary-light: #fee5ef;
+  --color-secondary-dark: #d83d73;
+
+  --color-accent: #f4669f;
+  --color-neutral: #411425;
+  --color-light: #fee5ef;
+  --color-dark: #661f37;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Mobile layout fixes */
+@media (max-width: 767px) {
+  .mobile-full-width {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+}
+
+.hide-scroll-bar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scroll-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom animations */
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 3s ease infinite;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Prevent scroll glitches */
+body {
+  overflow-x: hidden;
+}
+
+/* Smooth scrolling for navbar */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Fix navbar positioning and blur effect */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Ensure content flows behind navbar */
+main,
+section {
+  position: relative;
+  z-index: 1;
+}
+
+/* Optimize animations */
+* {
+  will-change: auto;
+}
+
+/* Smooth transitions */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+/* Typography Enhancements */
+.font-black {
+  font-weight: 900;
+}
+
+/* Custom text shadows for better readability */
+.text-shadow {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.text-shadow-lg {
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Enhanced gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #3b82f6, #06b6d4, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Interactive typography effects */
+.hover-lift {
+  transition: transform 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Letter spacing for better readability */
+.tracking-tight {
+  letter-spacing: -0.025em;
+}
+
+.tracking-wide {
+  letter-spacing: 0.025em;
+}
+
+/* Line height optimizations */
+.leading-tight {
+  line-height: 1.1;
+}
+
+.leading-relaxed {
+  line-height: 1.6;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
