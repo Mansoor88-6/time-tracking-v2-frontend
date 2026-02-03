@@ -201,3 +201,69 @@ section {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* Stat Card Styles */
+.bg-stat {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+}
+
+.dark .bg-stat {
+  background-color: #1f2937;
+  border-color: #374151;
+}
+
+.text-stat-foreground {
+  color: #111827;
+}
+
+.dark .text-stat-foreground {
+  color: #f9fafb;
+}
+
+.stat-card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.dark .stat-card-hover:hover {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
+
+.card-shadow-lg {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.dark .card-shadow-lg {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+/* Chart Color Classes */
+.stroke-chart-teal {
+  stroke: #14b8a6;
+}
+
+.stroke-chart-coral {
+  stroke: #ff6b6b;
+}
+
+.stroke-chart-yellow {
+  stroke: #fbbf24;
+}
+
+.stroke-chart-navy {
+  stroke: #1e3a8a;
+}
+
+/* Progress Ring Animation */
+.progress-ring {
+  transform: rotate(-90deg);
+}
+
+.progress-ring__circle {
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
