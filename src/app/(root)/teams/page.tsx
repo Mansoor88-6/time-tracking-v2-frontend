@@ -6,13 +6,15 @@ import { DataToolbar } from "@/components/admin/DataToolbar";
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { ModalForm } from "@/components/admin/ModalForm";
-import { teamsApi, Team } from "@/lib/api/teams";
+import { teamsApi, Team, TeamMember } from "@/lib/api/teams";
+import { usersApi, User } from "@/lib/api/users";
 import { useAppSelector } from "@/redux/hooks";
 import { useEffect, useState } from "react";
-import { BiPlus, BiEdit, BiTrash } from "react-icons/bi";
+import { BiPlus, BiEdit, BiTrash, BiUserPlus, BiUserMinus } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { toast } from "react-toastify";
+import { UserRole } from "@/types/auth/auth";
 
 interface TeamFormData {
   name: string;
@@ -28,10 +30,13 @@ const TeamsPage = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
 
-  const allowedRoles = ["ORG_ADMIN", "TEAM_MANAGER", "VIEWER"];
-  const isAllowed = user && allowedRoles.includes(user.role);
   const canEdit = user?.role === "ORG_ADMIN" || user?.role === "TEAM_MANAGER";
 
   const {
@@ -49,10 +54,6 @@ const TeamsPage = () => {
   } = useForm<TeamFormData>();
 
   const loadTeams = async () => {
-    if (!isAllowed) {
-      setLoading(false);
-      return;
-    }
     try {
       setLoading(true);
       const data = await teamsApi.list();
@@ -66,8 +67,34 @@ const TeamsPage = () => {
     }
   };
 
+  const loadUsers = async () => {
+    try {
+      const data = await usersApi.list();
+      setAllUsers(data);
+    } catch (err) {
+      console.error("Failed to load users:", err);
+    }
+  };
+
+  const loadTeamMembers = async (teamId: number) => {
+    try {
+      setLoadingMembers(true);
+      const members = await teamsApi.getTeamMembers(teamId);
+      setTeamMembers(members);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load team members"
+      );
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
   useEffect(() => {
     void loadTeams();
+    if (canEdit) {
+      void loadUsers();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 
@@ -140,6 +167,45 @@ const TeamsPage = () => {
     setIsDeleteDialogOpen(true);
   };
 
+  const openMembersModal = async (team: Team) => {
+    setSelectedTeam(team);
+    setIsMembersModalOpen(true);
+    await loadTeamMembers(team.id);
+  };
+
+  const handleAddMember = async () => {
+    if (!selectedTeam || !selectedUserId) return;
+    try {
+      await teamsApi.addTeamMember(selectedTeam.id, parseInt(selectedUserId));
+      toast.success("Member added successfully");
+      setSelectedUserId("");
+      await loadTeamMembers(selectedTeam.id);
+      await loadUsers(); // Refresh to show updated list
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to add member"
+      );
+    }
+  };
+
+  const handleRemoveMember = async (userId: number) => {
+    if (!selectedTeam) return;
+    try {
+      await teamsApi.removeTeamMember(selectedTeam.id, userId);
+      toast.success("Member removed successfully");
+      await loadTeamMembers(selectedTeam.id);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to remove member"
+      );
+    }
+  };
+
+  // Get users not already in the team
+  const availableUsers = allUsers.filter(
+    (user) => !teamMembers.some((member) => member.userId === user.id)
+  );
+
   const columns: AdminTableColumn<Team>[] = [
     {
       key: "name",
@@ -163,21 +229,10 @@ const TeamsPage = () => {
     },
   ];
 
-  if (!isAllowed) {
-    return (
-      <AuthGuard>
-        <div className="space-y-4">
-          <PageHeader
-            title="Teams"
-            description="You do not have permission to view teams."
-          />
-        </div>
-      </AuthGuard>
-    );
-  }
-
   return (
-    <AuthGuard>
+    <AuthGuard
+      requiredRoles={[UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN, UserRole.TEAM_MANAGER]}
+    >
       <div className="space-y-4">
         <PageHeader
           title="Teams"
@@ -214,6 +269,16 @@ const TeamsPage = () => {
             canEdit
               ? (row) => (
                   <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openMembersModal(row);
+                      }}
+                      className="text-slate-600 dark:text-slate-400 hover:text-primary transition-colors"
+                      title="Manage members"
+                    >
+                      <BiUserPlus className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -312,6 +377,112 @@ const TeamsPage = () => {
           confirmLabel="Delete"
           variant="danger"
         />
+
+        {/* Manage Members Modal */}
+        <ModalForm
+          isOpen={isMembersModalOpen}
+          onClose={() => {
+            setIsMembersModalOpen(false);
+            setSelectedTeam(null);
+            setTeamMembers([]);
+            setSelectedUserId("");
+          }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleAddMember();
+          }}
+          title={`Manage Members - ${selectedTeam?.name}`}
+          description="Add or remove users from this team."
+          isLoading={false}
+          size="lg"
+        >
+          <div className="space-y-4">
+            {/* Add Member Section */}
+            {availableUsers.length > 0 && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Add User to Team
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    className="flex-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="">Select a user...</option>
+                    {availableUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name || user.email} ({user.email})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={!selectedUserId}
+                    className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Current Members Table */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                Team Members ({teamMembers.length})
+              </label>
+              {loadingMembers ? (
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  Loading members...
+                </div>
+              ) : teamMembers.length === 0 ? (
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  No members in this team yet.
+                </div>
+              ) : (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-md overflow-hidden">
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead className="bg-slate-50 dark:bg-slate-800">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-300">
+                          Name
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-700 dark:text-slate-300">
+                          Email
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-slate-700 dark:text-slate-300">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-700">
+                      {teamMembers.map((member) => (
+                        <tr key={member.id}>
+                          <td className="px-4 py-2 text-sm text-slate-900 dark:text-slate-100">
+                            {member.userName}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-slate-500 dark:text-slate-400">
+                            {member.userEmail}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              onClick={() => handleRemoveMember(member.userId)}
+                              className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+                              title="Remove member"
+                            >
+                              <BiUserMinus className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </ModalForm>
       </div>
     </AuthGuard>
   );

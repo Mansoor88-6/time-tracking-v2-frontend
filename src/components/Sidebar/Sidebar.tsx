@@ -47,6 +47,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/DropdownMenu/DropdownMenu";
+import { useRoleAccess } from "@/hooks/useRoleAccess";
+import { UserRole, type Role } from "@/types/auth/auth";
 
 // TypeScript Type Definitions
 type IconComponent = React.ComponentType<{ className?: string }>;
@@ -83,6 +85,7 @@ interface NavItem {
   url: string;
   icon: string;
   subItems?: SubItem[];
+  requiredRoles?: Role[]; // Roles that can access this menu item
 }
 
 // Sidebar Section Types
@@ -321,27 +324,55 @@ const data: SidebarData = {
           name: "Dashboard",
           url: "/dashboard",
           icon: "LayoutDashboard",
+          requiredRoles: [
+            UserRole.SUPER_ADMIN,
+            UserRole.ORG_ADMIN,
+            UserRole.TEAM_MANAGER,
+            UserRole.EMPLOYEE,
+            UserRole.VIEWER,
+          ],
         },
-        // Placeholder links for future sections
         {
           name: "Teams",
           url: "/teams",
           icon: "Users",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN, UserRole.TEAM_MANAGER],
         },
         {
           name: "Projects",
           url: "/projects",
           icon: "Briefcase",
+          requiredRoles: [
+            UserRole.SUPER_ADMIN,
+            UserRole.ORG_ADMIN,
+            UserRole.TEAM_MANAGER,
+            UserRole.EMPLOYEE,
+            UserRole.VIEWER,
+          ],
         },
         {
           name: "Sessions",
           url: "/sessions",
           icon: "Calendar",
+          requiredRoles: [
+            UserRole.SUPER_ADMIN,
+            UserRole.ORG_ADMIN,
+            UserRole.TEAM_MANAGER,
+            UserRole.EMPLOYEE,
+            UserRole.VIEWER,
+          ],
         },
         {
           name: "Devices",
           url: "/devices",
           icon: "Settings",
+          requiredRoles: [
+            UserRole.SUPER_ADMIN,
+            UserRole.ORG_ADMIN,
+            UserRole.TEAM_MANAGER,
+            UserRole.EMPLOYEE,
+            UserRole.VIEWER,
+          ],
         },
       ],
     },
@@ -353,11 +384,13 @@ const data: SidebarData = {
           name: "Users",
           url: "/users",
           icon: "Users",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
         },
         {
           name: "Invitations",
           url: "/invitations",
           icon: "UserPlus",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
         },
       ],
     },
@@ -873,6 +906,24 @@ function SidebarContent({
 }: SidebarContentProps = {}): React.JSX.Element {
   const { isOpen, isMobile, isMobileOpen, setIsMobileOpen } =
     useSidebarContext();
+  const { hasAnyRole } = useRoleAccess();
+
+  // Filter sidebar sections and items based on user role
+  const filteredSidebarSections = React.useMemo(() => {
+    return data.sidebarSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => {
+          // If no requiredRoles specified, allow all (backward compatibility)
+          if (!item.requiredRoles || item.requiredRoles.length === 0) {
+            return true;
+          }
+          // Check if user has any of the required roles
+          return hasAnyRole(item.requiredRoles);
+        }),
+      }))
+      .filter((section) => section.items.length > 0); // Remove sections with no accessible items
+  }, [hasAnyRole]);
 
   if (isMobile) {
     return (
@@ -924,7 +975,7 @@ function SidebarContent({
 
             {/* Content - Scrollable */}
             <div className="flex-1 overflow-y-auto">
-              {data.sidebarSections.map((section, index) => (
+              {filteredSidebarSections.map((section, index) => (
                 <NavSection
                   key={index}
                   heading={section.heading}
@@ -979,7 +1030,7 @@ function SidebarContent({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {data.sidebarSections.map((section, index) => (
+          {filteredSidebarSections.map((section, index) => (
             <NavSection
               key={index}
               heading={section.heading}

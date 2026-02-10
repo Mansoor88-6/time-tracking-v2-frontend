@@ -44,6 +44,18 @@ export interface RolePermission {
   service_sections: Section[];
 }
 
+// Role enum matching backend
+export enum UserRole {
+  SUPER_ADMIN = "SUPER_ADMIN",
+  ORG_ADMIN = "ORG_ADMIN",
+  TEAM_MANAGER = "TEAM_MANAGER",
+  EMPLOYEE = "EMPLOYEE",
+  VIEWER = "VIEWER",
+}
+
+// Role type for type safety
+export type Role = UserRole | string;
+
 // Simplified auth user interface aligned with backend JWT payload
 export interface User {
   id: number;

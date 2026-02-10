@@ -244,7 +244,7 @@ section {
 
 /* Chart Color Classes */
 .stroke-chart-teal {
-  stroke: #14b8a6;
+  stroke: #0fbda8;
 }
 
 .stroke-chart-coral {
@@ -257,6 +257,10 @@ section {
 
 .stroke-chart-navy {
   stroke: #1e3a8a;
+}
+
+.stroke-chart-pink {
+  stroke: #ff6b9d;
 }
 
 /* Progress Ring Animation */

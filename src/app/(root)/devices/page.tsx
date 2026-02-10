@@ -6,11 +6,13 @@ import { DataToolbar } from "@/components/admin/DataToolbar";
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { devicesApi, Device } from "@/lib/api/devices";
+import { useAppSelector } from "@/redux/hooks";
 import { useEffect, useState } from "react";
 import { BiTrash } from "react-icons/bi";
 import { toast } from "react-toastify";
 
 const DevicesPage = () => {
+  const { user } = useAppSelector((state) => state.auth);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,10 +21,14 @@ const DevicesPage = () => {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [revoking, setRevoking] = useState(false);
 
+  const isOrgAdmin = user?.role === "ORG_ADMIN" || user?.role === "SUPER_ADMIN";
+
   const loadDevices = async () => {
     try {
       setLoading(true);
-      const data = await devicesApi.list();
+      const data = isOrgAdmin
+        ? await devicesApi.listOrganizationDevices()
+        : await devicesApi.list();
       setDevices(data);
       setError(null);
     } catch (err) {
@@ -37,13 +43,17 @@ const DevicesPage = () => {
 
   useEffect(() => {
     void loadDevices();
-  }, []);
+  }, [isOrgAdmin]);
 
   const filteredDevices = devices.filter((device) => {
     const searchLower = searchQuery.toLowerCase();
+    const userName = device.user?.name?.toLowerCase() || "";
+    const userEmail = device.user?.email?.toLowerCase() || "";
     return (
       device.name?.toLowerCase().includes(searchLower) ||
-      device.deviceId.toLowerCase().includes(searchLower)
+      device.deviceId.toLowerCase().includes(searchLower) ||
+      userName.includes(searchLower) ||
+      userEmail.includes(searchLower)
     );
   });
 
@@ -71,6 +81,25 @@ const DevicesPage = () => {
   };
 
   const columns: AdminTableColumn<Device>[] = [
+    ...(isOrgAdmin
+      ? [
+          {
+            key: "user",
+            label: "User",
+            sortable: true,
+            render: (row) => (
+              <div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">
+                  {row.user?.name || "Unknown User"}
+                </div>
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  {row.user?.email || "—"}
+                </div>
+              </div>
+            ),
+          },
+        ]
+      : []),
     {
       key: "name",
       label: "Device Name",
@@ -127,13 +156,21 @@ const DevicesPage = () => {
       <div className="space-y-4">
         <PageHeader
           title="Devices"
-          description="Manage devices associated with your account. Revoke access from devices you no longer use or recognize."
+          description={
+            isOrgAdmin
+              ? "View and manage all devices in your organization. See which users are using which devices."
+              : "Manage devices associated with your account. Revoke access from devices you no longer use or recognize."
+          }
         />
 
         <DataToolbar
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
-          searchPlaceholder="Search by device name or ID..."
+          searchPlaceholder={
+            isOrgAdmin
+              ? "Search by device name, ID, user name, or email..."
+              : "Search by device name or ID..."
+          }
         />
 
         {error && (

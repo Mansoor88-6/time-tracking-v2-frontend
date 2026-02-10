@@ -10,6 +10,11 @@ export interface Device {
   lastSeenAt?: string | null;
   createdAt: string;
   updatedAt?: string;
+  user?: {
+    id: number;
+    name: string;
+    email: string;
+  };
 }
 
 export interface RegisterDeviceDto {
@@ -20,6 +25,10 @@ export interface RegisterDeviceDto {
 export const devicesApi = {
   list: async (): Promise<Device[]> => {
     return apiClient<Device[]>("/devices/me");
+  },
+
+  listOrganizationDevices: async (): Promise<Device[]> => {
+    return apiClient<Device[]>("/devices/organization");
   },
 
   register: async (data: RegisterDeviceDto): Promise<Device> => {

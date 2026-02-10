@@ -1,6 +1,11 @@
 // services/apiClient.ts
 import { store } from "@/redux/store";
 import { logout, setTokens } from "@/redux/features/auth/authSlice";
+import {
+  getAccessToken as getAccessTokenCookie,
+  getRefreshToken as getRefreshTokenCookie,
+  setTokens as setTokensCookie,
+} from "@/lib/cookies";
 
 const BASE_URL = "http://localhost:4000";
 
@@ -18,19 +23,29 @@ const refreshToken = async (): Promise<boolean> => {
   refreshPromise = (async () => {
     try {
       const state = store.getState();
-      const refreshTokenValue = state.auth.refreshToken;
+      // Try Redux state first, then fallback to cookies
+      let refreshTokenValue = state.auth.refreshToken;
+      if (!refreshTokenValue) {
+        refreshTokenValue = getRefreshTokenCookie();
+      }
 
       if (!refreshTokenValue) {
         store.dispatch(logout());
         return false;
       }
 
+      // Include credentials to send httpOnly cookies
+      // If refreshToken is in httpOnly cookie, backend will read it from there
+      // Otherwise, send it in the body as fallback
       const response = await fetch(`${BASE_URL}/auth/refresh`, {
         method: "POST",
+        credentials: "include", // Include cookies (for httpOnly refresh token)
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ refreshToken: refreshTokenValue }),
+        body: refreshTokenValue
+          ? JSON.stringify({ refreshToken: refreshTokenValue })
+          : JSON.stringify({}), // Backend will read from cookie if not in body
       });
 
       if (!response.ok) {
@@ -39,9 +54,11 @@ const refreshToken = async (): Promise<boolean> => {
       }
 
       const data = (await response.json()) as { accessToken: string };
+      // Update both Redux and cookies
       store.dispatch(
         setTokens({ accessToken: data.accessToken, refreshToken: refreshTokenValue })
       );
+      setTokensCookie(data.accessToken, refreshTokenValue);
       return true;
     } catch {
       // Network error or other issues, dispatch logout action
@@ -62,10 +79,15 @@ export const apiClient = async <T>(
 ): Promise<T> => {
   const makeRequest = async (): Promise<Response> => {
     const state = store.getState();
-    const accessToken = state.auth.accessToken;
+    // Try Redux state first, then fallback to cookies
+    let accessToken = state.auth.accessToken;
+    if (!accessToken) {
+      accessToken = getAccessTokenCookie();
+    }
 
     return fetch(`${BASE_URL}${url}`, {
       ...options,
+      credentials: "include", // Include cookies (for httpOnly refresh token)
       headers: {
         "Content-Type": "application/json",
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),

@@ -5,10 +5,11 @@ import {
   Reducer,
 } from "@reduxjs/toolkit";
 import { setupListeners } from "@reduxjs/toolkit/query";
-import authReducer from "./features/auth/authSlice";
+import authReducer, { setTokens } from "./features/auth/authSlice";
 import rbacReducer from "./features/rbac/rbacSlice";
 import { authApi } from "./services/authApi";
 import { resetState } from "./features/reset";
+import { getAccessToken, getRefreshToken } from "@/lib/cookies";
 
 // Combine all reducers
 const appReducer = combineReducers({
@@ -35,6 +36,25 @@ export const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(authApi.middleware),
 });
+
+// Initialize auth state from cookies after store creation (runs once on app load)
+// Use a flag to ensure this only runs once
+let tokensInitialized = false;
+if (typeof window !== "undefined" && !tokensInitialized) {
+  tokensInitialized = true;
+  const accessToken = getAccessToken();
+  const refreshToken = getRefreshToken();
+
+  if (accessToken || refreshToken) {
+    // Dispatch synchronously to restore tokens from cookies
+    store.dispatch(
+      setTokens({
+        accessToken: accessToken || "",
+        refreshToken: refreshToken || undefined,
+      })
+    );
+  }
+}
 
 // Setup RTK Query listeners
 setupListeners(store.dispatch);

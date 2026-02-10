@@ -13,6 +13,7 @@ import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { BiTrash, BiKey } from "react-icons/bi";
 import { toast } from "react-toastify";
+import { UserRole } from "@/types/auth/auth";
 
 interface PasswordFormData {
   password: string;
@@ -38,13 +39,7 @@ const UsersPage = () => {
     formState: { errors, isSubmitting },
   } = useForm<PasswordFormData>();
 
-  const isOrgAdmin = user?.role === "ORG_ADMIN";
-
   const loadUsers = async () => {
-    if (!isOrgAdmin) {
-      setLoading(false);
-      return;
-    }
     try {
       setLoading(true);
       const data = await usersApi.list();
@@ -192,21 +187,8 @@ const UsersPage = () => {
     },
   ];
 
-  if (!isOrgAdmin) {
-    return (
-      <AuthGuard>
-        <div className="space-y-4">
-          <PageHeader
-            title="Users"
-            description="You do not have permission to manage users. Only organization admins can view this page."
-          />
-        </div>
-      </AuthGuard>
-    );
-  }
-
   return (
-    <AuthGuard>
+    <AuthGuard requiredRoles={[UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN]}>
       <div className="space-y-4">
         <PageHeader
           title="Users"

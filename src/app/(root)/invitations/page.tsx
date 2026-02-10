@@ -13,6 +13,7 @@ import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { toast } from "react-toastify";
 import { Team } from "@/lib/api/teams";
+import { UserRole } from "@/types/auth/auth";
 
 interface InviteFormInputs {
   email: string;
@@ -37,8 +38,6 @@ const InvitationsPage = () => {
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const isOrgAdmin = user?.role === "ORG_ADMIN";
-
   const {
     register,
     handleSubmit,
@@ -53,7 +52,6 @@ const InvitationsPage = () => {
   // Fetch available teams
   useEffect(() => {
     const loadTeams = async () => {
-      if (!isOrgAdmin) return;
       try {
         setLoadingTeams(true);
         const data = await teamsApi.list();
@@ -65,12 +63,12 @@ const InvitationsPage = () => {
       }
     };
     void loadTeams();
-  }, [isOrgAdmin]);
+  }, []);
 
   // Load invitations (if backend supports it)
   useEffect(() => {
     const loadInvitations = async () => {
-      if (!isOrgAdmin || !user?.tenantId) {
+      if (!user?.tenantId) {
         setLoading(false);
         return;
       }
@@ -92,7 +90,7 @@ const InvitationsPage = () => {
       }
     };
     void loadInvitations();
-  }, [isOrgAdmin, user?.tenantId]);
+  }, [user?.tenantId]);
 
   const toggleTeam = (teamId: number) => {
     const current = watchedTeamIds || [];
@@ -179,21 +177,8 @@ const InvitationsPage = () => {
     },
   ];
 
-  if (!isOrgAdmin) {
-    return (
-      <AuthGuard>
-        <div className="space-y-4">
-          <PageHeader
-            title="Send Invitation"
-            description="Only organization admins can send invitations."
-          />
-        </div>
-      </AuthGuard>
-    );
-  }
-
   return (
-    <AuthGuard>
+    <AuthGuard requiredRoles={[UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN]}>
       <div className="space-y-6">
         <PageHeader
           title="Invitations"

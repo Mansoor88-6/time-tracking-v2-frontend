@@ -10,6 +10,19 @@ export interface Team {
   updatedAt?: string;
 }
 
+export interface TeamMember {
+  id: number;
+  userId: number;
+  userName: string;
+  userEmail: string;
+  teamRole?: string | null;
+  createdAt?: string;
+}
+
+export interface TeamWithMembers extends Team {
+  members?: TeamMember[];
+}
+
 export interface CreateTeamDto {
   name: string;
   managerId?: number;
@@ -18,6 +31,10 @@ export interface CreateTeamDto {
 export interface UpdateTeamDto {
   name?: string;
   managerId?: number | null;
+}
+
+export interface AddTeamMemberDto {
+  userId: number;
 }
 
 export const teamsApi = {
@@ -45,6 +62,23 @@ export const teamsApi = {
 
   delete: async (id: number): Promise<void> => {
     return apiClient<void>(`/teams/${id}`, {
+      method: "DELETE",
+    });
+  },
+
+  getTeamMembers: async (id: number): Promise<TeamMember[]> => {
+    return apiClient<TeamMember[]>(`/teams/${id}/members`);
+  },
+
+  addTeamMember: async (teamId: number, userId: number): Promise<TeamMember> => {
+    return apiClient<TeamMember>(`/teams/${teamId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    });
+  },
+
+  removeTeamMember: async (teamId: number, userId: number): Promise<void> => {
+    return apiClient<void>(`/teams/${teamId}/members/${userId}`, {
       method: "DELETE",
     });
   },

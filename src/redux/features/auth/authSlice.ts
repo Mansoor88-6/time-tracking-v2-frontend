@@ -2,6 +2,7 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { loginUser, logoutUser } from "./authThunks";
 import { User } from "@/types/auth/auth";
 import { resetState } from "../reset";
+import { setTokens as setTokensCookie, clearTokens } from "@/lib/cookies";
 
 interface AuthState {
   user: User | null;
@@ -33,12 +34,26 @@ const authSlice = createSlice({
       if (action.payload.refreshToken) {
         state.refreshToken = action.payload.refreshToken;
       }
+      // If we have an access token, consider user authenticated (temporary until user data loads)
+      // This prevents redirect to login when tokens are restored from cookies
+      if (action.payload.accessToken) {
+        state.isAuthenticated = true;
+      }
+      // Sync with cookies (only if we're in browser and tokens are not empty)
+      if (typeof window !== "undefined" && action.payload.accessToken) {
+        setTokensCookie(
+          action.payload.accessToken,
+          action.payload.refreshToken
+        );
+      }
     },
     logout(state) {
       state.user = null;
       state.isAuthenticated = false;
       state.accessToken = null;
       state.refreshToken = null;
+      // Clear cookies
+      clearTokens();
     },
   },
   extraReducers: (builder) => {
@@ -48,9 +63,20 @@ const authSlice = createSlice({
         state.isAuthenticated = true;
         state.accessToken = action.payload.accessToken;
         state.refreshToken = action.payload.refreshToken;
+        // Sync with cookies
+        setTokensCookie(
+          action.payload.accessToken,
+          action.payload.refreshToken
+        );
       })
-      .addCase(logoutUser.fulfilled, () => initialAuthState)
-      .addCase(resetState, () => initialAuthState);
+      .addCase(logoutUser.fulfilled, () => {
+        clearTokens();
+        return initialAuthState;
+      })
+      .addCase(resetState, () => {
+        clearTokens();
+        return initialAuthState;
+      });
   },
 });
 

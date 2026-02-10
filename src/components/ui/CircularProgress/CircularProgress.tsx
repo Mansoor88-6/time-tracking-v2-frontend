@@ -4,7 +4,7 @@ interface CircularProgressProps {
   value: number; // 0-100
   size?: number;
   strokeWidth?: number;
-  color?: "teal" | "coral" | "yellow" | "navy";
+  color?: "teal" | "coral" | "yellow" | "navy" | "pink";
   className?: string;
   showValue?: boolean;
 }
@@ -14,13 +14,14 @@ const colorMap = {
   coral: "stroke-chart-coral",
   yellow: "stroke-chart-yellow",
   navy: "stroke-chart-navy",
+  pink: "stroke-chart-pink",
 };
 
 export function CircularProgress({
   value,
   size = 60,
   strokeWidth = 6,
-  color = "teal",
+  color = "pink",
   className,
   showValue = true,
 }: CircularProgressProps) {
@@ -31,17 +32,7 @@ export function CircularProgress({
   return (
     <div className={cn("relative inline-flex items-center justify-center", className)}>
       <svg width={size} height={size} className="progress-ring">
-        {/* Background circle */}
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={strokeWidth}
-          className="text-white/20"
-        />
-        {/* Progress circle */}
+        {/* Progress circle - only visible arc, no background track */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -55,7 +46,7 @@ export function CircularProgress({
         />
       </svg>
       {showValue && (
-        <span className="absolute text-xs font-semibold text-stat-foreground">
+        <span className="absolute text-xs font-bold text-gray-900 dark:text-gray-50 tracking-tight leading-none">
           {value}%
         </span>
       )}
