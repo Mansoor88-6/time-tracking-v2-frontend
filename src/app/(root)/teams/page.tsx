@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { ModalForm } from "@/components/admin/ModalForm";
 import { teamsApi, Team, TeamMember } from "@/lib/api/teams";
 import { usersApi, User } from "@/lib/api/users";
+import { ruleCollectionsApi, RuleCollection } from "@/lib/api/rule-collections";
 import { useAppSelector } from "@/redux/hooks";
 import { useEffect, useState } from "react";
 import { BiPlus, BiEdit, BiTrash, BiUserPlus, BiUserMinus } from "react-icons/bi";
@@ -15,6 +16,7 @@ import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { toast } from "react-toastify";
 import { UserRole } from "@/types/auth/auth";
+import { useRouter } from "next/navigation";
 
 interface TeamFormData {
   name: string;
@@ -36,6 +38,9 @@ const TeamsPage = () => {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [teamCollections, setTeamCollections] = useState<Record<number, RuleCollection[]>>({});
+  const [loadingCollections, setLoadingCollections] = useState<Record<number, boolean>>({});
+  const router = useRouter();
 
   const canEdit = user?.role === "ORG_ADMIN" || user?.role === "TEAM_MANAGER";
 
@@ -89,6 +94,25 @@ const TeamsPage = () => {
       setLoadingMembers(false);
     }
   };
+
+  const loadTeamCollections = async (teamId: number) => {
+    try {
+      setLoadingCollections((prev) => ({ ...prev, [teamId]: true }));
+      const collections = await teamsApi.getTeamCollections(teamId);
+      setTeamCollections((prev) => ({ ...prev, [teamId]: collections }));
+    } catch (err) {
+      console.error(`Failed to load collections for team ${teamId}:`, err);
+    } finally {
+      setLoadingCollections((prev) => ({ ...prev, [teamId]: false }));
+    }
+  };
+
+  useEffect(() => {
+    // Load collections for all teams
+    teams.forEach((team) => {
+      void loadTeamCollections(team.id);
+    });
+  }, [teams]);
 
   useEffect(() => {
     void loadTeams();
@@ -217,6 +241,40 @@ const TeamsPage = () => {
       label: "Manager",
       sortable: true,
       render: (row) => row.managerName || "—",
+    },
+    {
+      key: "collections",
+      label: "Collections",
+      render: (row) => {
+        const collections = teamCollections[row.id] || [];
+        const isLoading = loadingCollections[row.id];
+        
+        if (isLoading) {
+          return <span className="text-gray-400 text-sm">Loading...</span>;
+        }
+        
+        if (collections.length === 0) {
+          return <span className="text-gray-400 text-sm">No collections</span>;
+        }
+        
+        return (
+          <div className="flex flex-wrap gap-1">
+            {collections.map((collection) => (
+              <button
+                key={collection.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  router.push(`/productivity-rules/collections`);
+                }}
+                className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs hover:bg-purple-200 transition-colors"
+                title={collection.description || collection.name}
+              >
+                {collection.name}
+              </button>
+            ))}
+          </div>
+        );
+      },
     },
     {
       key: "createdAt",

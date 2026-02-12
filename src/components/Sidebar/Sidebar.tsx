@@ -35,6 +35,8 @@ import {
   MdFlashOn,
   MdHelpOutline,
   MdLock,
+  MdRule,
+  MdList,
 } from "react-icons/md";
 import { HiUpload, HiDocumentText } from "react-icons/hi";
 import { FaBrain, FaProjectDiagram } from "react-icons/fa";
@@ -190,6 +192,8 @@ const IconMap: Record<string, IconComponent> = {
   BarChart2: MdBarChart,
   BrainCircuit: FaBrain,
   Workflow: FaProjectDiagram,
+  Rule: MdRule,
+  List: MdList,
 
   // Action icons
   Edit3: MdEdit,
@@ -391,6 +395,29 @@ const data: SidebarData = {
           url: "/invitations",
           icon: "UserPlus",
           requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
+        },
+        {
+          name: "Productivity Rules",
+          url: "/productivity-rules/collections",
+          icon: "Rule",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
+          subItems: [
+            {
+              name: "Collections",
+              url: "/productivity-rules/collections",
+              icon: "Rule",
+            },
+            {
+              name: "Rules",
+              url: "/productivity-rules",
+              icon: "CheckSquare",
+            },
+            {
+              name: "Unclassified Apps",
+              url: "/productivity-rules/unclassified",
+              icon: "List",
+            },
+          ],
         },
       ],
     },

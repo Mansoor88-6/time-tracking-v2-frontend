@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { useAppSelector } from "@/redux/hooks";
 import { StatCard } from "@/components/ui/StatCard/StatCard";
@@ -31,6 +31,14 @@ import {
   type AppUsageStatsResponse,
 } from "@/services/appUsage";
 import { getAppIcon } from "@/utils/appIcons";
+import { PeriodSelector } from "@/components/ui/PeriodSelector/PeriodSelector";
+import { DateNavigator } from "@/components/ui/DateNavigator/DateNavigator";
+import { DateRangePicker } from "@/components/ui/DateRangePicker/DateRangePicker";
+import {
+  Period,
+  getDateRangeForPeriod,
+  formatPeriodDate,
+} from "@/utils/dateRange";
 
 type DashboardStat = {
   label: string;
@@ -45,53 +53,62 @@ type DashboardStat = {
 /**
  * Convert dashboard stats response to stat card format
  */
-function mapStatsToCards(stats: DashboardStatsResponse | null): DashboardStat[] {
+function mapStatsToCards(
+  stats: DashboardStatsResponse | null,
+  period: Period = 'day'
+): DashboardStat[] {
+  const getSubtitle = (defaultSubtitle: string) => {
+    if (period === 'week') return 'THIS WEEK';
+    if (period === 'month') return 'THIS MONTH';
+    return defaultSubtitle;
+  };
+
   if (!stats) {
     // Return empty/default stats while loading
     return [
       {
         label: "Arrival Time",
         value: "--:--",
-        subtitle: "TODAY",
+        subtitle: getSubtitle("TODAY"),
       },
       {
         label: "Left Time",
         value: "--:--",
-        subtitle: "TODAY",
+        subtitle: getSubtitle("TODAY"),
       },
       {
         label: "Productive Time",
         value: "0m",
-        subtitle: "TODAY",
+        subtitle: getSubtitle("TODAY"),
       },
       {
         label: "Desktime Time",
         value: "0m",
-        subtitle: "TODAY",
+        subtitle: getSubtitle("TODAY"),
       },
       {
         label: "Time at work",
         value: "0m",
-        subtitle: "TODAY",
+        subtitle: getSubtitle("TODAY"),
       },
       {
         label: "Productivity Score",
         value: "0%",
-        subtitle: "THIS WEEK",
+        subtitle: getSubtitle("THIS WEEK"),
         progress: 0,
         progressColor: "pink" as const,
       },
       {
         label: "Effectiveness",
         value: "0%",
-        subtitle: "THIS WEEK",
+        subtitle: getSubtitle("THIS WEEK"),
         progress: 0,
         progressColor: "pink" as const,
       },
       {
         label: "Projects Time",
         value: "0m",
-        subtitle: "TODAY",
+        subtitle: getSubtitle("TODAY"),
       },
     ];
   }
@@ -109,48 +126,48 @@ function mapStatsToCards(stats: DashboardStatsResponse | null): DashboardStat[] 
       label: "Arrival Time",
       value: arrivalTimeFormatted?.time ?? "--:--",
       valueSuffix: arrivalTimeFormatted?.suffix,
-      subtitle: "TODAY",
+      subtitle: getSubtitle("TODAY"),
     },
     {
       label: "Left Time",
       value: leftTimeFormatted?.time ?? "--:--",
       valueSuffix: leftTimeFormatted?.suffix,
-      subtitle: "TODAY",
+      subtitle: getSubtitle("TODAY"),
       helperText: stats.isOnline ? "Online" : undefined,
     },
     {
       label: "Productive Time",
       value: formatDuration(stats.productiveTimeMs),
-      subtitle: "TODAY",
+      subtitle: getSubtitle("TODAY"),
     },
     {
       label: "Desktime Time",
       value: formatDuration(stats.deskTimeMs),
-      subtitle: "TODAY",
+      subtitle: getSubtitle("TODAY"),
     },
     {
       label: "Time at work",
       value: formatDuration(stats.timeAtWorkMs),
-      subtitle: "TODAY",
+      subtitle: getSubtitle("TODAY"),
     },
     {
       label: "Productivity Score",
       value: `${stats.productivityScorePct}%`,
-      subtitle: "THIS WEEK",
+      subtitle: getSubtitle("THIS WEEK"),
       progress: stats.productivityScorePct,
       progressColor: "pink" as const,
     },
     {
       label: "Effectiveness",
       value: `${stats.effectivenessPct}%`,
-      subtitle: "THIS WEEK",
+      subtitle: getSubtitle("THIS WEEK"),
       progress: stats.effectivenessPct,
       progressColor: "pink" as const,
     },
     {
       label: "Projects Time",
       value: formatDuration(stats.projectsTimeMs),
-      subtitle: "TODAY",
+      subtitle: getSubtitle("TODAY"),
     },
   ];
 }
@@ -257,6 +274,14 @@ const OrgDashboardPage = () => {
   const { user } = useAppSelector((state) => state.auth);
   const isOrgAdmin = user?.role === "ORG_ADMIN" || user?.role === "SUPER_ADMIN";
   
+  // Period and date state (shared for both individual and org dashboards)
+  const [period, setPeriod] = useState<Period>('day');
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  
+  // Custom date range state (overrides period-based selection)
+  const [customStartDate, setCustomStartDate] = useState<string | undefined>(undefined);
+  const [customEndDate, setCustomEndDate] = useState<string | undefined>(undefined);
+  
   // Individual dashboard state
   const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -269,10 +294,7 @@ const OrgDashboardPage = () => {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   
-  // Filters for organization dashboard
-  const [filterDate, setFilterDate] = useState<string>("");
-  const [filterStartDate, setFilterStartDate] = useState<string>("");
-  const [filterEndDate, setFilterEndDate] = useState<string>("");
+  // Filters for organization dashboard (legacy - will be replaced by period/date)
   const [filterUserIds, setFilterUserIds] = useState<number[]>([]);
   const [filterTeamIds, setFilterTeamIds] = useState<number[]>([]);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -282,17 +304,31 @@ const OrgDashboardPage = () => {
   // Get user's timezone (default to browser timezone)
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   
-  // Get today's date in YYYY-MM-DD format
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // Calculate date range - use custom range if set, otherwise use period-based range
+  const dateRange = useMemo(() => {
+    if (customStartDate && customEndDate) {
+      return {
+        startDate: customStartDate,
+        endDate: customEndDate,
+      };
+    }
+    return getDateRangeForPeriod(currentDate, period);
+  }, [customStartDate, customEndDate, currentDate, period]);
+  
+  // Handle custom date range change
+  const handleCustomDateRangeChange = (startDate: string | undefined, endDate: string | undefined) => {
+    setCustomStartDate(startDate);
+    setCustomEndDate(endDate);
+  };
 
-  // Fetch app usage stats
+  // Fetch app usage stats (for individual dashboard only, using single date for now)
+  const dateForAppUsage = dateRange.date || dateRange.startDate || new Date().toISOString().split('T')[0];
   const {
     data: appUsageData,
     isLoading: isAppUsageLoading,
     isError: isAppUsageError,
     error: appUsageError,
-  } = useAppUsageStats(dateStr, timezone);
+  } = useAppUsageStats(dateForAppUsage, timezone);
 
   // Load users and teams for filters (ORG_ADMIN only)
   useEffect(() => {
@@ -313,33 +349,40 @@ const OrgDashboardPage = () => {
     }
   }, [isOrgAdmin]);
 
-  // Fetch individual dashboard stats on mount
+  // Fetch individual dashboard stats
   useEffect(() => {
     if (!isOrgAdmin) {
-    const loadStats = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        const data = await fetchDashboardStats(dateStr, timezone);
-        setStats(data);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to load dashboard stats";
-        setError(errorMessage);
-        console.error("Failed to fetch dashboard stats:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+      const loadStats = async () => {
+        try {
+          setIsLoading(true);
+          setError(null);
+          
+          const data = await fetchDashboardStats(
+            dateRange.date,
+            timezone,
+            dateRange.startDate,
+            dateRange.endDate
+          );
+          setStats(data);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : "Failed to load dashboard stats";
+          setError(errorMessage);
+          console.error("Failed to fetch dashboard stats:", err);
+        } finally {
+          setIsLoading(false);
+        }
+      };
 
-    loadStats();
-    
-    // Refresh stats every 30 seconds
-    const interval = setInterval(loadStats, 30000);
-    
-    return () => clearInterval(interval);
+      loadStats();
+      
+      // Refresh stats every 30 seconds (only for day view, not for custom ranges)
+      const interval = customStartDate && customEndDate ? null : setInterval(loadStats, 30000);
+      
+      return () => {
+        if (interval) clearInterval(interval);
+      };
     }
-  }, [dateStr, timezone, isOrgAdmin]);
+  }, [isOrgAdmin, period, currentDate, customStartDate, customEndDate, timezone, dateRange]);
 
   // Fetch organization dashboard stats
   useEffect(() => {
@@ -351,9 +394,9 @@ const OrgDashboardPage = () => {
         setErrorOrg(null);
         
         const data = await fetchOrganizationDashboardStats({
-          date: filterDate || undefined,
-          startDate: filterStartDate || undefined,
-          endDate: filterEndDate || undefined,
+          date: dateRange.date,
+          startDate: dateRange.startDate,
+          endDate: dateRange.endDate,
           timezone,
           userIds: filterUserIds.length > 0 ? filterUserIds : undefined,
           teamIds: filterTeamIds.length > 0 ? filterTeamIds : undefined,
@@ -369,9 +412,9 @@ const OrgDashboardPage = () => {
     };
 
     void loadOrgStats();
-  }, [isOrgAdmin, filterDate, filterStartDate, filterEndDate, filterUserIds, filterTeamIds, timezone]);
+  }, [isOrgAdmin, period, currentDate, customStartDate, customEndDate, filterUserIds, filterTeamIds, timezone, dateRange]);
 
-  const dashboardStats = mapStatsToCards(stats);
+  const dashboardStats = mapStatsToCards(stats, period);
   const appUsage = transformAppUsage(appUsageData);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -390,17 +433,23 @@ const OrgDashboardPage = () => {
     const aggregatedStats = orgStats?.aggregated;
     const userStats = orgStats?.users || [];
 
+    const getPeriodSubtitle = () => {
+      if (period === 'week') return 'THIS WEEK';
+      if (period === 'month') return 'THIS MONTH';
+      return 'TODAY';
+    };
+
     const orgDashboardStats: DashboardStat[] = aggregatedStats
       ? [
           {
             label: "Total Productive Time",
             value: formatDuration(aggregatedStats.totalProductiveTimeMs),
-            subtitle: filterStartDate && filterEndDate ? "DATE RANGE" : "TODAY",
+            subtitle: getPeriodSubtitle(),
           },
           {
             label: "Average Productivity Score",
             value: `${Math.round(aggregatedStats.averageProductivityScore)}%`,
-            subtitle: filterStartDate && filterEndDate ? "DATE RANGE" : "TODAY",
+            subtitle: getPeriodSubtitle(),
             progress: Math.round(aggregatedStats.averageProductivityScore),
             progressColor: "pink" as const,
           },
@@ -412,19 +461,19 @@ const OrgDashboardPage = () => {
           {
             label: "Total Desk Time",
             value: formatDuration(aggregatedStats.totalDeskTimeMs),
-            subtitle: filterStartDate && filterEndDate ? "DATE RANGE" : "TODAY",
+            subtitle: getPeriodSubtitle(),
           },
           {
             label: "Average Effectiveness",
             value: `${Math.round(aggregatedStats.averageEffectiveness)}%`,
-            subtitle: filterStartDate && filterEndDate ? "DATE RANGE" : "TODAY",
+            subtitle: getPeriodSubtitle(),
             progress: Math.round(aggregatedStats.averageEffectiveness),
             progressColor: "pink" as const,
           },
           {
             label: "Total Projects Time",
             value: formatDuration(aggregatedStats.totalProjectsTimeMs),
-            subtitle: filterStartDate && filterEndDate ? "DATE RANGE" : "TODAY",
+            subtitle: getPeriodSubtitle(),
           },
         ]
       : [];
@@ -472,12 +521,7 @@ const OrgDashboardPage = () => {
     ];
 
     // Count active filters
-    const activeFilterCount =
-      (filterDate ? 1 : 0) +
-      (filterStartDate && filterEndDate ? 1 : 0) +
-      filterUserIds.length +
-      filterTeamIds.length;
-
+    const activeFilterCount = filterUserIds.length + filterTeamIds.length;
     const hasActiveFilters = activeFilterCount > 0;
 
     // Get selected user/team names for display
@@ -489,9 +533,6 @@ const OrgDashboardPage = () => {
       .map((t) => t.name);
 
     const clearAllFilters = () => {
-      setFilterDate("");
-      setFilterStartDate("");
-      setFilterEndDate("");
       setFilterUserIds([]);
       setFilterTeamIds([]);
     };
@@ -499,68 +540,30 @@ const OrgDashboardPage = () => {
     return (
       <AuthGuard>
         <div className="space-y-6">
-          {/* Header with integrated filters */}
-          <div className="space-y-4">
-            {/* <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Organization Dashboard
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  View time tracking analytics across all users in your organization.
-                </p>
-              </div>
-            </div> */}
-
-            {/* Compact Filter Toolbar */}
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              {/* Date Filter - Single Date */}
-              <div className="relative">
-                <BiCalendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="date"
-                  value={filterDate}
-                  onChange={(e) => {
-                    setFilterDate(e.target.value);
-                    setFilterStartDate("");
-                    setFilterEndDate("");
-                  }}
-                  className="pl-9 pr-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  placeholder="Date"
-                />
-              </div>
-
-              {/* Date Range - Start Date */}
-              <div className="relative">
-                <BiCalendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="date"
-                  value={filterStartDate}
-                  onChange={(e) => {
-                    setFilterStartDate(e.target.value);
-                    setFilterDate("");
-                  }}
-                  className="pl-9 pr-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  placeholder="Start Date"
-                />
-              </div>
-
-              {/* Date Range - End Date */}
-              {filterStartDate && (
-                <div className="relative">
-                  <BiCalendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="date"
-                    value={filterEndDate}
-                    onChange={(e) => {
-                      setFilterEndDate(e.target.value);
-                      setFilterDate("");
-                    }}
-                    className="pl-9 pr-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    placeholder="End Date"
-                  />
-                </div>
-              )}
+          {/* Header with all filters in one line */}
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+            {/* Period Selector and Date Navigator */}
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <PeriodSelector 
+                period={period} 
+                onPeriodChange={setPeriod}
+                disabled={!!(customStartDate && customEndDate)}
+              />
+              <DateNavigator
+                currentDate={currentDate}
+                period={period}
+                onDateChange={setCurrentDate}
+                disabled={!!(customStartDate && customEndDate)}
+              />
+              <DateRangePicker
+                startDate={customStartDate}
+                endDate={customEndDate}
+                onDateRangeChange={handleCustomDateRangeChange}
+              />
+            </div>
+            
+            {/* User and Team Filters - Right Aligned */}
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap ml-auto">
 
               {/* Users Filter Dropdown */}
               <DropdownMenu open={usersDropdownOpen} onOpenChange={setUsersDropdownOpen}>
@@ -638,7 +641,7 @@ const OrgDashboardPage = () => {
               </DropdownMenu>
 
               {/* Advanced Filters Toggle */}
-              <button
+              {/* <button
                 onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   showAdvancedFilters
@@ -653,7 +656,7 @@ const OrgDashboardPage = () => {
                     {activeFilterCount}
                   </span>
                 )}
-              </button>
+              </button> */}
 
               {/* Clear Filters */}
               {hasActiveFilters && (
@@ -666,81 +669,56 @@ const OrgDashboardPage = () => {
                 </button>
               )}
             </div>
-
-            {/* Active Filter Chips */}
-            {hasActiveFilters && (
-              <div className="flex flex-wrap items-center gap-2">
-                {filterDate && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full">
-                    Date: {new Date(filterDate).toLocaleDateString()}
-                    <button
-                      onClick={() => setFilterDate("")}
-                      className="hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-full p-0.5"
-                    >
-                      <BiX className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-                {filterStartDate && filterEndDate && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full">
-                    Range: {new Date(filterStartDate).toLocaleDateString()} - {new Date(filterEndDate).toLocaleDateString()}
-                    <button
-                      onClick={() => {
-                        setFilterStartDate("");
-                        setFilterEndDate("");
-                      }}
-                      className="hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-full p-0.5"
-                    >
-                      <BiX className="w-3 h-3" />
-                    </button>
-                  </span>
-                )}
-                {selectedUserNames.map((name, idx) => {
-                  const userId = filterUserIds[idx];
-                  return (
-                    <span
-                      key={userId}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full"
-                    >
-                      User: {name}
-                      <button
-                        onClick={() => setFilterUserIds(filterUserIds.filter((id) => id !== userId))}
-                        className="hover:bg-purple-200 dark:hover:bg-purple-900/50 rounded-full p-0.5"
-                      >
-                        <BiX className="w-3 h-3" />
-                      </button>
-                    </span>
-                  );
-                })}
-                {selectedTeamNames.map((name, idx) => {
-                  const teamId = filterTeamIds[idx];
-                  return (
-                    <span
-                      key={teamId}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full"
-                    >
-                      Team: {name}
-                      <button
-                        onClick={() => setFilterTeamIds(filterTeamIds.filter((id) => id !== teamId))}
-                        className="hover:bg-green-200 dark:hover:bg-green-900/50 rounded-full p-0.5"
-                      >
-                        <BiX className="w-3 h-3" />
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Advanced Filters Panel (Collapsible) - Only for date range selection */}
-            {showAdvancedFilters && (
-              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
-                  Use the dropdowns above to select users and teams. Date filters are available in the toolbar.
-                </p>
-              </div>
-            )}
           </div>
+
+          {/* Active Filter Chips */}
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedUserNames.map((name, idx) => {
+                const userId = filterUserIds[idx];
+                return (
+                  <span
+                    key={userId}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full"
+                  >
+                    User: {name}
+                    <button
+                      onClick={() => setFilterUserIds(filterUserIds.filter((id) => id !== userId))}
+                      className="hover:bg-purple-200 dark:hover:bg-purple-900/50 rounded-full p-0.5"
+                    >
+                      <BiX className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
+              {selectedTeamNames.map((name, idx) => {
+                const teamId = filterTeamIds[idx];
+                return (
+                  <span
+                    key={teamId}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full"
+                  >
+                    Team: {name}
+                    <button
+                      onClick={() => setFilterTeamIds(filterTeamIds.filter((id) => id !== teamId))}
+                      className="hover:bg-green-200 dark:hover:bg-green-900/50 rounded-full p-0.5"
+                    >
+                      <BiX className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Advanced Filters Panel (Collapsible) - Only for date range selection */}
+          {showAdvancedFilters && (
+            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                Use the dropdowns above to select users and teams. Date filters are available in the toolbar.
+              </p>
+            </div>
+          )}
 
           {/* Aggregated Stat Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
@@ -801,18 +779,27 @@ const OrgDashboardPage = () => {
   return (
     <AuthGuard>
       <div className="space-y-6">
-        {/* <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Dashboard
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Welcome{" "}
-            <span className="font-semibold">
-              {user?.name || user?.email || "user"}
-            </span>
-            . Here&apos;s your time tracking overview.
-          </p>
-        </div> */}
+            {/* Period Selector and Date Navigator */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <PeriodSelector 
+                  period={period} 
+                  onPeriodChange={setPeriod}
+                  disabled={!!(customStartDate && customEndDate)}
+                />
+                <DateNavigator
+                  currentDate={currentDate}
+                  period={period}
+                  onDateChange={setCurrentDate}
+                  disabled={!!(customStartDate && customEndDate)}
+                />
+                <DateRangePicker
+                  startDate={customStartDate}
+                  endDate={customEndDate}
+                  onDateRangeChange={handleCustomDateRangeChange}
+                />
+              </div>
+            </div>
 
         {/* Stat Cards Grid - 8 cards in 2 rows (4 per row) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">

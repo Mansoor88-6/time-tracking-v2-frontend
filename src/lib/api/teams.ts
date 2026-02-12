@@ -82,4 +82,8 @@ export const teamsApi = {
       method: "DELETE",
     });
   },
+
+  getTeamCollections: async (id: number): Promise<any[]> => {
+    return apiClient<any[]>(`/teams/${id}/collections`);
+  },
 };

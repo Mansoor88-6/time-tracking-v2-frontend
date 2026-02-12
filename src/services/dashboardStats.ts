@@ -76,10 +76,14 @@ export function formatTimeWithSuffix(date: Date | string | null): {
  */
 export async function fetchDashboardStats(
   date?: string,
-  timezone?: string
+  timezone?: string,
+  startDate?: string,
+  endDate?: string
 ): Promise<DashboardStatsResponse> {
   const params = new URLSearchParams();
   if (date) params.append("date", date);
+  if (startDate) params.append("startDate", startDate);
+  if (endDate) params.append("endDate", endDate);
   if (timezone) params.append("tz", timezone);
   
   const queryString = params.toString();
