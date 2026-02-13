@@ -1,4 +1,5 @@
 import { cn } from "@/utils/tw";
+import { getChartColorClassUtil } from "@/theme/utils";
 
 interface CircularProgressProps {
   value: number; // 0-100
@@ -8,14 +9,6 @@ interface CircularProgressProps {
   className?: string;
   showValue?: boolean;
 }
-
-const colorMap = {
-  teal: "stroke-chart-teal",
-  coral: "stroke-chart-coral",
-  yellow: "stroke-chart-yellow",
-  navy: "stroke-chart-navy",
-  pink: "stroke-chart-pink",
-};
 
 export function CircularProgress({
   value,
@@ -42,7 +35,7 @@ export function CircularProgress({
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
           strokeLinecap="round"
-          className={cn("progress-ring__circle", colorMap[color])}
+          className={cn("progress-ring__circle", getChartColorClassUtil(color))}
         />
       </svg>
       {showValue && (

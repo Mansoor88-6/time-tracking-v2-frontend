@@ -2,6 +2,7 @@
 import React, { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { getBadgeColor, getIconColor } from "@/theme/utils";
 
 // Register GSAP plugins
 if (typeof window !== "undefined") {
@@ -199,31 +200,12 @@ const PKIFeatures = () => {
     },
   ];
 
-  const getBadgeColor = (color: string) => {
-    const colors = {
-      blue: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-      green:
-        "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-      purple:
-        "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
-      red: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-      cyan: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-300",
-      yellow:
-        "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
+  const getBadgeColorLocal = (color: string) => {
+    return getBadgeColor(color as any);
   };
 
-  const getIconColor = (color: string) => {
-    const colors = {
-      blue: "text-blue-600 dark:text-blue-400",
-      green: "text-green-600 dark:text-green-400",
-      purple: "text-purple-600 dark:text-purple-400",
-      red: "text-red-600 dark:text-red-400",
-      cyan: "text-cyan-600 dark:text-cyan-400",
-      yellow: "text-yellow-600 dark:text-yellow-400",
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
+  const getIconColorLocal = (color: string) => {
+    return getIconColor(color as any);
   };
 
   return (
@@ -257,7 +239,7 @@ const PKIFeatures = () => {
               <div className="relative z-10">
                 {/* Badge */}
                 <div
-                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium mb-4 ${getBadgeColor(
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium mb-4 ${getBadgeColorLocal(
                     feature.color
                   )}`}
                 >
@@ -266,7 +248,7 @@ const PKIFeatures = () => {
 
                 {/* Icon */}
                 <div
-                  className={`flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl mb-6 group-hover:scale-110 transition-transform duration-300 ${getIconColor(
+                  className={`flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl mb-6 group-hover:scale-110 transition-transform duration-300 ${getIconColorLocal(
                     feature.color
                   )}`}
                 >

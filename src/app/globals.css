@@ -242,25 +242,25 @@ section {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
 }
 
-/* Chart Color Classes */
+/* Chart Color Classes - Using theme tokens */
 .stroke-chart-teal {
-  stroke: #0fbda8;
+  stroke: #0fbda8; /* theme.chart.teal */
 }
 
 .stroke-chart-coral {
-  stroke: #ff6b6b;
+  stroke: #ff6b6b; /* theme.chart.coral */
 }
 
 .stroke-chart-yellow {
-  stroke: #fbbf24;
+  stroke: #fbbf24; /* theme.chart.yellow */
 }
 
 .stroke-chart-navy {
-  stroke: #1e3a8a;
+  stroke: #1e3a8a; /* theme.chart.navy */
 }
 
 .stroke-chart-pink {
-  stroke: #ff6b9d;
+  stroke: #ff6b9d; /* theme.chart.pink */
 }
 
 /* Progress Ring Animation */
@@ -270,4 +270,68 @@ section {
 
 .progress-ring__circle {
   transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Drawer Animations */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    max-height: 300px;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+  opacity: 0;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out forwards;
+}
+
+.animate-slide-down {
+  animation: slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }

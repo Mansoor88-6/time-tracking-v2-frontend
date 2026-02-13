@@ -20,6 +20,7 @@ import { useEffect, useState, useMemo } from "react";
 import { BiCheck, BiX, BiMinus, BiFilter, BiPlus } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
+import { getColorClassesUtil, getSemanticColor, getCategoryStylesUtil, getPrimaryButtonStyle } from "@/theme/utils";
 
 interface ClassifyFormData {
   category: AppCategory;
@@ -389,13 +390,13 @@ const UnclassifiedAppsPage = () => {
       key: "status",
       header: "Status",
       render: (app) => {
-        const colors = {
-          pending: "bg-yellow-100 text-yellow-800",
-          reviewed: "bg-blue-100 text-blue-800",
-          classified: "bg-green-100 text-green-800",
+        const statusColors = {
+          pending: getSemanticColor("warning").badge,
+          reviewed: getSemanticColor("info").badge,
+          classified: getSemanticColor("success").badge,
         };
         return (
-          <span className={`capitalize px-2 py-1 rounded text-sm ${colors[app.status]}`}>
+          <span className={`capitalize px-2 py-1 rounded text-sm ${statusColors[app.status]}`}>
             {app.status}
           </span>
         );
@@ -414,14 +415,14 @@ const UnclassifiedAppsPage = () => {
               <>
                 <button
                   onClick={() => handleQuickCreateDomainRule(app, "productive")}
-                  className="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded text-xs hover:bg-green-200 dark:hover:bg-green-800"
+                  className={`px-2 py-1 ${getCategoryStylesUtil("productive").badge} rounded text-xs hover:bg-green-200 dark:hover:bg-green-800`}
                   title="Create domain rule (productive)"
                 >
                   Domain: Prod
                 </button>
                 <button
                   onClick={() => handleQuickCreateDomainRule(app, "unproductive")}
-                  className="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded text-xs hover:bg-red-200 dark:hover:bg-red-800"
+                  className={`px-2 py-1 ${getCategoryStylesUtil("unproductive").badge} rounded text-xs hover:bg-red-200 dark:hover:bg-red-800`}
                   title="Create domain rule (unproductive)"
                 >
                   Domain: Unprod
@@ -432,7 +433,7 @@ const UnclassifiedAppsPage = () => {
                       setSelectedApp(app);
                       setIsClassifyModalOpen(true);
                     }}
-                    className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-xs hover:bg-blue-200 dark:hover:bg-blue-800"
+                    className={`px-2 py-1 ${getSemanticColor("info").badge} rounded text-xs hover:bg-blue-200 dark:hover:bg-blue-800`}
                     title="Create URL rule"
                   >
                     URL Rule
@@ -445,31 +446,12 @@ const UnclassifiedAppsPage = () => {
                 setSelectedApp(app);
                 setIsClassifyModalOpen(true);
               }}
-              className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded text-xs hover:bg-gray-200 dark:hover:bg-gray-600"
+                  className={`px-2 py-1 ${getCategoryStylesUtil("neutral").badge} rounded text-xs hover:bg-gray-200 dark:hover:bg-gray-600`}
               title="Classify"
             >
               Classify
             </button>
           </div>
-        );
-      },
-      render: (app) => (
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              setSelectedApp(app);
-              resetClassify({
-                category: "productive",
-                applyToTeamId: app.teamId?.toString() || "",
-              });
-              setIsClassifyModalOpen(true);
-            }}
-            className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded"
-            title="Classify"
-          >
-            <BiCheck size={18} />
-          </button>
-        </div>
         );
       },
     },
@@ -518,21 +500,21 @@ const UnclassifiedAppsPage = () => {
                     resetBulkAdd();
                     setIsBulkAddModalOpen(true);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  className={`flex items-center gap-2 px-4 py-2 ${getPrimaryButtonStyle()} rounded-lg`}
                 >
                   <BiPlus size={20} />
                   Add to Collection ({selectedApps.length})
                 </button>
                 <button
                   onClick={() => handleBulkClassify("productive")}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  className={`flex items-center gap-2 px-4 py-2 ${getSemanticColor("success").button} text-white rounded-lg`}
                 >
                   <BiCheck size={20} />
                   Mark as Productive ({selectedApps.length})
                 </button>
                 <button
                   onClick={() => handleBulkClassify("unproductive")}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  className={`flex items-center gap-2 px-4 py-2 ${getSemanticColor("error").button} text-white rounded-lg`}
                 >
                   <BiX size={20} />
                   Mark as Unproductive ({selectedApps.length})
@@ -588,7 +570,7 @@ const UnclassifiedAppsPage = () => {
         </div>
 
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+          <div className={`p-4 ${getSemanticColor("error").bg} ${getSemanticColor("error").border} rounded-lg ${getSemanticColor("error").text}`}>
             {error}
           </div>
         )}
@@ -634,7 +616,7 @@ const UnclassifiedAppsPage = () => {
                 <option value="neutral">Neutral</option>
               </select>
               {errorsClassify.category && (
-                <p className="text-red-600 text-sm mt-1">{errorsClassify.category.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsClassify.category.message}</p>
               )}
             </div>
 
@@ -684,7 +666,7 @@ const UnclassifiedAppsPage = () => {
                 ))}
               </select>
               {errorsBulkAdd.collectionId && (
-                <p className="text-red-600 text-sm mt-1">{errorsBulkAdd.collectionId.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsBulkAdd.collectionId.message}</p>
               )}
             </div>
 
@@ -699,7 +681,7 @@ const UnclassifiedAppsPage = () => {
                 <option value="neutral">Neutral</option>
               </select>
               {errorsBulkAdd.category && (
-                <p className="text-red-600 text-sm mt-1">{errorsBulkAdd.category.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsBulkAdd.category.message}</p>
               )}
             </div>
 

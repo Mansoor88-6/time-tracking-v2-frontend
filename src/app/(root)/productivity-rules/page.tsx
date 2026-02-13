@@ -21,6 +21,7 @@ import { BiPlus, BiEdit, BiTrash, BiFilter } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { toast } from "react-toastify";
+import { getColorClassesUtil, getSemanticColor, getCategoryStylesUtil, getPrimaryButtonStyle } from "@/theme/utils";
 
 interface RuleFormData {
   teamId: string;
@@ -221,13 +222,9 @@ const ProductivityRulesPage = () => {
       key: "category",
       header: "Category",
       render: (rule) => {
-        const colors = {
-          productive: "bg-green-100 text-green-800",
-          unproductive: "bg-red-100 text-red-800",
-          neutral: "bg-gray-100 text-gray-800",
-        };
+        const categoryStyles = getCategoryStylesUtil(rule.category);
         return (
-          <span className={`capitalize px-2 py-1 rounded text-sm ${colors[rule.category]}`}>
+          <span className={`capitalize px-2 py-1 rounded text-sm ${categoryStyles.badge}`}>
             {rule.category}
           </span>
         );
@@ -238,8 +235,9 @@ const ProductivityRulesPage = () => {
       header: "Collection",
       render: (rule) => {
         if (rule.collection) {
+          const purpleColors = getColorClassesUtil("purple");
           return (
-            <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">
+            <span className={`px-2 py-1 ${purpleColors.badge} rounded text-xs`}>
               {rule.collection.name}
             </span>
           );
@@ -272,7 +270,7 @@ const ProductivityRulesPage = () => {
               });
               setIsEditModalOpen(true);
             }}
-            className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+            className={`p-1 ${getSemanticColor("info").text} hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded`}
             title="Edit"
           >
             <BiEdit size={18} />
@@ -282,7 +280,7 @@ const ProductivityRulesPage = () => {
               setSelectedRule(rule);
               setIsDeleteDialogOpen(true);
             }}
-            className="p-1 text-red-600 hover:bg-red-50 rounded"
+            className={`p-1 ${getSemanticColor("error").text} hover:bg-red-50 dark:hover:bg-red-900/20 rounded`}
             title="Delete"
           >
             <BiTrash size={18} />
@@ -309,7 +307,7 @@ const ProductivityRulesPage = () => {
                 resetCreate();
                 setIsCreateModalOpen(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className={`flex items-center gap-2 px-4 py-2 ${getPrimaryButtonStyle()} rounded-lg`}
             >
               <BiPlus size={20} />
               Add Rule
@@ -361,7 +359,7 @@ const ProductivityRulesPage = () => {
               onClick={() => setViewMode("collection")}
               className={`px-3 py-2 rounded text-sm ${
                 viewMode === "collection"
-                  ? "bg-blue-600 text-white"
+                  ? `${getPrimaryButtonStyle()}`
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
@@ -371,7 +369,7 @@ const ProductivityRulesPage = () => {
               onClick={() => setViewMode("flat")}
               className={`px-3 py-2 rounded text-sm ${
                 viewMode === "flat"
-                  ? "bg-blue-600 text-white"
+                  ? `${getPrimaryButtonStyle()}`
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
@@ -381,7 +379,7 @@ const ProductivityRulesPage = () => {
         </div>
 
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+          <div className={`p-4 ${getSemanticColor("error").bg} ${getSemanticColor("error").border} rounded-lg ${getSemanticColor("error").text}`}>
             {error}
           </div>
         )}
@@ -458,7 +456,7 @@ const ProductivityRulesPage = () => {
                 ))}
               </select>
               {errorsCreate.teamId && (
-                <p className="text-red-600 text-sm mt-1">{errorsCreate.teamId.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsCreate.teamId.message}</p>
               )}
             </div>
 
@@ -479,7 +477,7 @@ const ProductivityRulesPage = () => {
                 <option value="web">Web</option>
               </select>
               {errorsCreate.appType && (
-                <p className="text-red-600 text-sm mt-1">{errorsCreate.appType.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsCreate.appType.message}</p>
               )}
             </div>
 
@@ -495,7 +493,7 @@ const ProductivityRulesPage = () => {
                 <option value="neutral">Neutral</option>
               </select>
               {errorsCreate.category && (
-                <p className="text-red-600 text-sm mt-1">{errorsCreate.category.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsCreate.category.message}</p>
               )}
             </div>
           </div>
@@ -535,7 +533,7 @@ const ProductivityRulesPage = () => {
                 <option value="neutral">Neutral</option>
               </select>
               {errorsEdit.category && (
-                <p className="text-red-600 text-sm mt-1">{errorsEdit.category.message}</p>
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsEdit.category.message}</p>
               )}
             </div>
           </div>

@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Button from "@/components/ui/Button/Button";
+import { getColorClassesUtil } from "@/theme/utils";
 
 // Register GSAP plugins
 if (typeof window !== "undefined") {
@@ -131,27 +132,7 @@ const Pricing = () => {
   ];
 
   const getColorClasses = (color: string) => {
-    const colors = {
-      blue: {
-        bg: "bg-blue-50 dark:bg-blue-900/20",
-        border: "border-blue-200 dark:border-blue-800",
-        button: "bg-blue-600 hover:bg-blue-700",
-        accent: "text-blue-600 dark:text-blue-400",
-      },
-      purple: {
-        bg: "bg-purple-50 dark:bg-purple-900/20",
-        border: "border-purple-200 dark:border-purple-800",
-        button: "bg-purple-600 hover:bg-purple-700",
-        accent: "text-purple-600 dark:text-purple-400",
-      },
-      green: {
-        bg: "bg-green-50 dark:bg-green-900/20",
-        border: "border-green-200 dark:border-green-800",
-        button: "bg-green-600 hover:bg-green-700",
-        accent: "text-green-600 dark:text-green-400",
-      },
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
+    return getColorClassesUtil(color as any);
   };
 
   return (

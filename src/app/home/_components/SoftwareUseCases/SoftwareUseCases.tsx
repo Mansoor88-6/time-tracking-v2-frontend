@@ -2,6 +2,7 @@
 import React, { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { getColorClassesUtil } from "@/theme/utils";
 
 // Register GSAP plugins
 if (typeof window !== "undefined") {
@@ -236,45 +237,7 @@ const SoftwareUseCases = () => {
   ];
 
   const getColorClasses = (color: string) => {
-    const colors = {
-      blue: {
-        bg: "bg-blue-50 dark:bg-blue-900/20",
-        border: "border-blue-200 dark:border-blue-800",
-        icon: "text-blue-600 dark:text-blue-400",
-        accent: "text-blue-600 dark:text-blue-400",
-      },
-      green: {
-        bg: "bg-green-50 dark:bg-green-900/20",
-        border: "border-green-200 dark:border-green-800",
-        icon: "text-green-600 dark:text-green-400",
-        accent: "text-green-600 dark:text-green-400",
-      },
-      purple: {
-        bg: "bg-purple-50 dark:bg-purple-900/20",
-        border: "border-purple-200 dark:border-purple-800",
-        icon: "text-purple-600 dark:text-purple-400",
-        accent: "text-purple-600 dark:text-purple-400",
-      },
-      orange: {
-        bg: "bg-orange-50 dark:bg-orange-900/20",
-        border: "border-orange-200 dark:border-orange-800",
-        icon: "text-orange-600 dark:text-orange-400",
-        accent: "text-orange-600 dark:text-orange-400",
-      },
-      cyan: {
-        bg: "bg-cyan-50 dark:bg-cyan-900/20",
-        border: "border-cyan-200 dark:border-cyan-800",
-        icon: "text-cyan-600 dark:text-cyan-400",
-        accent: "text-cyan-600 dark:text-cyan-400",
-      },
-      indigo: {
-        bg: "bg-indigo-50 dark:bg-indigo-900/20",
-        border: "border-indigo-200 dark:border-indigo-800",
-        icon: "text-indigo-600 dark:text-indigo-400",
-        accent: "text-indigo-600 dark:text-indigo-400",
-      },
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
+    return getColorClassesUtil(color as any);
   };
 
   return (

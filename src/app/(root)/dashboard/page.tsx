@@ -39,6 +39,7 @@ import {
   getDateRangeForPeriod,
   formatPeriodDate,
 } from "@/utils/dateRange";
+import { getColorClassesUtil } from "@/theme/utils";
 
 type DashboardStat = {
   label: string;
@@ -676,10 +677,11 @@ const OrgDashboardPage = () => {
             <div className="flex flex-wrap items-center gap-2">
               {selectedUserNames.map((name, idx) => {
                 const userId = filterUserIds[idx];
+                const purpleColors = getColorClassesUtil("purple");
                 return (
                   <span
                     key={userId}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full"
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium ${purpleColors.badge} rounded-full`}
                   >
                     User: {name}
                     <button
@@ -693,10 +695,11 @@ const OrgDashboardPage = () => {
               })}
               {selectedTeamNames.map((name, idx) => {
                 const teamId = filterTeamIds[idx];
+                const greenColors = getColorClassesUtil("green");
                 return (
                   <span
                     key={teamId}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full"
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium ${greenColors.badge} rounded-full`}
                   >
                     Team: {name}
                     <button

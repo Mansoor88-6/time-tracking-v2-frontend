@@ -6,23 +6,36 @@ import { DataToolbar } from "@/components/admin/DataToolbar";
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { ModalForm } from "@/components/admin/ModalForm";
+import { RuleCollectionDrawer } from "@/components/ui/Drawer/RuleCollectionDrawer";
+import { ViewCollectionDrawer } from "@/components/ui/Drawer";
+import {
+  useListCollectionsQuery,
+  useGetCollectionQuery,
+  useGetCollectionRulesQuery,
+  useCreateCollectionMutation,
+  useUpdateCollectionMutation,
+  useDeleteCollectionMutation,
+  useAddRulesToCollectionMutation,
+  useRemoveRuleFromCollectionMutation,
+  useUpdateCollectionMutation as useUpdateCollectionMetadataMutation,
+} from "@/redux/services/ruleCollectionsApi";
 import {
   ruleCollectionsApi,
   RuleCollection,
   CreateCollectionDto,
   SuggestedApp,
-  AppType,
-  AppCategory,
   RuleType,
 } from "@/lib/api/rule-collections";
+import { AppType, AppCategory } from "@/lib/api/productivity-rules";
 import { teamsApi, Team } from "@/lib/api/teams";
 import { productivityRulesApi, TeamProductivityRule } from "@/lib/api/productivity-rules";
 import { useAppSelector } from "@/redux/hooks";
-import { useEffect, useState } from "react";
-import { BiPlus, BiEdit, BiTrash, BiX, BiCheck } from "react-icons/bi";
+import { useEffect, useState, useRef } from "react";
+import { BiPlus, BiEdit, BiTrash, BiX, BiCheck, BiShow } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { toast } from "react-toastify";
+import { getColorClassesUtil, getSemanticColor, getPrimaryButtonStyle } from "@/theme/utils";
 
 interface CollectionFormData {
   name: string;
@@ -31,6 +44,7 @@ interface CollectionFormData {
 }
 
 interface SelectedRule {
+  tempId?: string; // Frontend-only, for bulk selection tracking
   appName: string;
   appType: AppType;
   category: AppCategory;
@@ -41,20 +55,70 @@ interface SelectedRule {
 
 const CollectionsPage = () => {
   const { user } = useAppSelector((state) => state.auth);
-  const [collections, setCollections] = useState<RuleCollection[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [suggestedApps, setSuggestedApps] = useState<{ desktop: SuggestedApp[]; web: SuggestedApp[] } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isViewDrawerOpen, setIsViewDrawerOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<RuleCollection | null>(null);
   const [selectedRules, setSelectedRules] = useState<SelectedRule[]>([]);
   const [selectedAppType, setSelectedAppType] = useState<AppType | "all">("all");
   const [bulkCategory, setBulkCategory] = useState<AppCategory>("productive");
+  const [viewCollectionRules, setViewCollectionRules] = useState<TeamProductivityRule[]>([]);
+  const [isLoadingViewRules, setIsLoadingViewRules] = useState(false);
+  const customInputRef = useRef<HTMLInputElement>(null);
+
+  // RTK Query hooks
+  const {
+    data: collections = [],
+    isLoading: loading,
+    error: collectionsError,
+  } = useListCollectionsQuery();
+
+  const {
+    data: viewCollection,
+    isLoading: isLoadingCollection,
+  } = useGetCollectionQuery(selectedCollection?.id ?? 0, {
+    skip: !selectedCollection || !isViewDrawerOpen,
+  });
+
+  const {
+    data: collectionRules = [],
+    isLoading: isLoadingRules,
+    refetch: refetchCollectionRules,
+  } = useGetCollectionRulesQuery(selectedCollection?.id ?? 0, {
+    skip: !selectedCollection?.id || !isViewDrawerOpen,
+  });
+
+  // Fallback: Load rules directly if RTK Query doesn't return data
+  useEffect(() => {
+    if (isViewDrawerOpen && selectedCollection?.id) {
+      if (collectionRules.length === 0 && !isLoadingRules) {
+        // Try direct API call as fallback
+        ruleCollectionsApi
+          .getCollectionRules(selectedCollection.id)
+          .then((rules) => {
+            setViewCollectionRules(rules);
+          })
+          .catch((err) => {
+            console.error("Failed to fetch collection rules:", err);
+            setViewCollectionRules([]);
+          });
+      } else if (collectionRules.length > 0) {
+        setViewCollectionRules(collectionRules);
+      }
+    } else {
+      setViewCollectionRules([]);
+    }
+  }, [isViewDrawerOpen, selectedCollection?.id, collectionRules, isLoadingRules]);
+
+  const [createCollection] = useCreateCollectionMutation();
+  const [updateCollection] = useUpdateCollectionMutation();
+  const [deleteCollection] = useDeleteCollectionMutation();
+  const [addRulesToCollection] = useAddRulesToCollectionMutation();
+  const [removeRuleFromCollection] = useRemoveRuleFromCollectionMutation();
 
   const {
     register: registerCreate,
@@ -80,19 +144,6 @@ const CollectionsPage = () => {
     }
   };
 
-  const loadCollections = async () => {
-    try {
-      setLoading(true);
-      const data = await ruleCollectionsApi.list();
-      setCollections(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load collections");
-      toast.error("Failed to load collections");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadSuggestedApps = async () => {
     try {
@@ -105,13 +156,18 @@ const CollectionsPage = () => {
 
   useEffect(() => {
     void loadTeams();
-    void loadCollections();
     void loadSuggestedApps();
   }, []);
 
   const filteredCollections = collections.filter((collection) =>
     collection.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const error = collectionsError
+    ? "message" in collectionsError
+      ? collectionsError.message
+      : "Failed to load collections"
+    : null;
 
   const handleCreate = async (data: CollectionFormData) => {
     if (selectedRules.length === 0) {
@@ -120,20 +176,19 @@ const CollectionsPage = () => {
     }
 
     try {
-      // Remove suggestedCategory from rules before sending to backend
-      const rulesToSend = selectedRules.map(({ suggestedCategory, ...rule }) => rule);
+      // Remove frontend-only properties (tempId, suggestedCategory) from rules before sending to backend
+      const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
       
-      await ruleCollectionsApi.create({
+      await createCollection({
         name: data.name,
         description: data.description,
         teamIds: data.teamIds.map((id) => parseInt(id)),
         rules: rulesToSend,
-      });
+      }).unwrap();
       toast.success("Collection created successfully");
       setIsCreateModalOpen(false);
       resetCreate();
       setSelectedRules([]);
-      await loadCollections();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create collection");
     }
@@ -142,15 +197,75 @@ const CollectionsPage = () => {
   const handleEdit = async (data: CollectionFormData) => {
     if (!selectedCollection) return;
     try {
-      await ruleCollectionsApi.update(selectedCollection.id, {
-        name: data.name,
-        description: data.description,
-      });
+      // Update collection metadata
+      await updateCollection({
+        id: selectedCollection.id,
+        data: {
+          name: data.name,
+          description: data.description,
+        },
+      }).unwrap();
+
+      // Handle rule changes
+      const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
+      
+      // Get existing rules for comparison
+      const existingRules = await ruleCollectionsApi.getCollectionRules(selectedCollection.id);
+      
+      // Find rules to add (new rules not in existing)
+      const existingRuleKeys = new Set(
+        existingRules.map((r) => `${r.appName}-${r.appType}`)
+      );
+      const newRules = rulesToSend.filter(
+        (r) => !existingRuleKeys.has(`${r.appName}-${r.appType}`)
+      );
+
+      // Find rules to remove (existing rules not in selected)
+      const selectedRuleKeys = new Set(
+        rulesToSend.map((r) => `${r.appName}-${r.appType}`)
+      );
+      const rulesToRemove = existingRules.filter(
+        (r) => !selectedRuleKeys.has(`${r.appName}-${r.appType}`)
+      );
+
+      // Add new rules
+      if (newRules.length > 0) {
+        await addRulesToCollection({
+          id: selectedCollection.id,
+          data: { rules: newRules },
+        }).unwrap();
+      }
+
+      // Remove deleted rules
+      for (const rule of rulesToRemove) {
+        await removeRuleFromCollection(rule.id).unwrap();
+      }
+
+      // Update team assignments if changed
+      const currentTeamIds = selectedCollection.teamAssignments?.map((ta) => ta.teamId) || [];
+      const newTeamIds = data.teamIds.map((id) => parseInt(id));
+      const teamIdsChanged =
+        currentTeamIds.length !== newTeamIds.length ||
+        currentTeamIds.some((id) => !newTeamIds.includes(id));
+
+      if (teamIdsChanged) {
+        // Remove all current assignments
+        for (const teamId of currentTeamIds) {
+          await ruleCollectionsApi.unassignFromTeam(selectedCollection.id, teamId);
+        }
+        // Add new assignments
+        if (newTeamIds.length > 0) {
+          await ruleCollectionsApi.assignToTeams(selectedCollection.id, {
+            teamIds: newTeamIds,
+          });
+        }
+      }
+
       toast.success("Collection updated successfully");
       setIsEditModalOpen(false);
       setSelectedCollection(null);
       resetEdit();
-      await loadCollections();
+      setSelectedRules([]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update collection");
     }
@@ -159,11 +274,10 @@ const CollectionsPage = () => {
   const handleDelete = async () => {
     if (!selectedCollection) return;
     try {
-      await ruleCollectionsApi.delete(selectedCollection.id);
+      await deleteCollection(selectedCollection.id).unwrap();
       toast.success("Collection deleted successfully");
       setIsDeleteDialogOpen(false);
       setSelectedCollection(null);
-      await loadCollections();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete collection");
     }
@@ -179,7 +293,11 @@ const CollectionsPage = () => {
           (r) => !(r.appName === rule.appName && r.appType === rule.appType)
         );
       } else {
-        return [...prev, { ...rule, category: rule.suggestedCategory }];
+        return [...prev, { 
+          ...rule, 
+          category: rule.suggestedCategory,
+          tempId: crypto.randomUUID(),
+        }];
       }
     });
   };
@@ -247,14 +365,17 @@ const CollectionsPage = () => {
       header: "Teams",
       render: (collection) => (
         <div className="flex flex-wrap gap-1">
-          {collection.teamAssignments?.map((assignment) => (
-            <span
-              key={assignment.id}
-              className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-            >
-              {assignment.team.name}
-            </span>
-          )) || <span className="text-gray-400 text-sm">No teams</span>}
+          {collection.teamAssignments?.map((assignment) => {
+            const infoColors = getSemanticColor("info");
+            return (
+              <span
+                key={assignment.id}
+                className={`px-2 py-1 ${infoColors.badge} rounded text-xs`}
+              >
+                {assignment.team.name}
+              </span>
+            );
+          }) || <span className="text-gray-400 text-sm">No teams</span>}
         </div>
       ),
     },
@@ -264,26 +385,54 @@ const CollectionsPage = () => {
       render: (collection) => (
         <div className="flex gap-2">
           <button
-            onClick={() => {
+            onClick={async () => {
               setSelectedCollection(collection);
-              setIsDetailsModalOpen(true);
+              setIsViewDrawerOpen(true);
+              setIsLoadingViewRules(true);
+              // Load rules immediately when opening view drawer
+              try {
+                const rules = await ruleCollectionsApi.getCollectionRules(collection.id);
+                setViewCollectionRules(rules);
+              } catch (err) {
+                console.error("Failed to load collection rules:", err);
+                toast.error("Failed to load collection rules");
+                setViewCollectionRules([]);
+              } finally {
+                setIsLoadingViewRules(false);
+              }
             }}
-            className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+            className={`p-1 ${getSemanticColor("info").text} hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded`}
             title="View Details"
           >
-            <BiEdit size={18} />
+            <BiShow size={18} />
           </button>
           <button
-            onClick={() => {
+            onClick={async () => {
               setSelectedCollection(collection);
-              resetEdit({
-                name: collection.name,
-                description: collection.description || "",
-                teamIds: collection.teamAssignments?.map((ta) => ta.teamId.toString()) || [],
-              });
-              setIsEditModalOpen(true);
+              // Load collection rules for edit mode
+              try {
+                const rules = await ruleCollectionsApi.getCollectionRules(collection.id);
+                const selectedRulesForEdit: SelectedRule[] = rules.map((rule) => ({
+                  tempId: crypto.randomUUID(),
+                  appName: rule.appName,
+                  appType: rule.appType,
+                  category: rule.category,
+                  ruleType: (rule.ruleType as RuleType) || undefined,
+                  pattern: rule.pattern || undefined,
+                }));
+                setSelectedRules(selectedRulesForEdit);
+                resetEdit({
+                  name: collection.name,
+                  description: collection.description || "",
+                  teamIds: collection.teamAssignments?.map((ta) => ta.teamId.toString()) || [],
+                });
+                setIsEditModalOpen(true);
+              } catch (err) {
+                toast.error("Failed to load collection rules");
+                console.error(err);
+              }
             }}
-            className="p-1 text-green-600 hover:bg-green-50 rounded"
+            className={`p-1 ${getSemanticColor("success").text} hover:bg-green-50 dark:hover:bg-green-900/20 rounded`}
             title="Edit"
           >
             <BiEdit size={18} />
@@ -293,7 +442,7 @@ const CollectionsPage = () => {
               setSelectedCollection(collection);
               setIsDeleteDialogOpen(true);
             }}
-            className="p-1 text-red-600 hover:bg-red-50 rounded"
+            className={`p-1 ${getSemanticColor("error").text} hover:bg-red-50 dark:hover:bg-red-900/20 rounded`}
             title="Delete"
           >
             <BiTrash size={18} />
@@ -321,7 +470,7 @@ const CollectionsPage = () => {
                 setSelectedRules([]);
                 setIsCreateModalOpen(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className={`flex items-center gap-2 px-4 py-2 ${getPrimaryButtonStyle()} rounded-lg`}
             >
               <BiPlus size={20} />
               Create Collection
@@ -330,7 +479,7 @@ const CollectionsPage = () => {
         />
 
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+          <div className={`p-4 ${getSemanticColor("error").bg} ${getSemanticColor("error").border} rounded-lg ${getSemanticColor("error").text}`}>
             {error}
           </div>
         )}
@@ -342,339 +491,94 @@ const CollectionsPage = () => {
           emptyMessage="No collections found. Create your first collection to get started."
         />
 
-        {/* Create Collection Modal */}
-        <ModalForm
+        {/* Create Collection Drawer */}
+        <RuleCollectionDrawer
           isOpen={isCreateModalOpen}
           onClose={() => {
             setIsCreateModalOpen(false);
             resetCreate();
             setSelectedRules([]);
           }}
-          title="Create Rule Collection"
           onSubmit={handleSubmitCreate(handleCreate)}
-          isSubmitting={isSubmittingCreate}
-          size="large"
-        >
-          <div className="space-y-6 max-h-[70vh] overflow-y-auto">
-            {/* Basic Info */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-lg dark:text-white">Basic Information</h3>
-              <FloatingInput
-                label="Collection Name"
-                {...registerCreate("name", { required: "Name is required" })}
-                error={errorsCreate.name?.message}
-              />
-              <FloatingInput
-                label="Description (optional)"
-                {...registerCreate("description")}
-                error={errorsCreate.description?.message}
-              />
-            </div>
+          isLoading={isSubmittingCreate}
+          teams={teams}
+          suggestedApps={suggestedApps}
+          selectedRules={selectedRules}
+          setSelectedRules={setSelectedRules}
+          selectedAppType={selectedAppType}
+          setSelectedAppType={setSelectedAppType}
+          bulkCategory={bulkCategory}
+          setBulkCategory={setBulkCategory}
+          applyBulkCategory={applyBulkCategory}
+          toggleRuleSelection={toggleRuleSelection}
+          updateRuleCategory={updateRuleCategory}
+          updateRuleType={updateRuleType}
+          updateRulePattern={updateRulePattern}
+          register={registerCreate}
+          errors={errorsCreate}
+          customInputRef={customInputRef}
+        />
 
-            {/* Team Selection */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-lg dark:text-white">Assign to Teams</h3>
-              <div className="space-y-2 max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-white dark:bg-slate-800">
-                {teams.map((team) => (
-                  <label key={team.id} className="flex items-center gap-2 cursor-pointer text-slate-900 dark:text-slate-100">
-                    <input
-                      type="checkbox"
-                      value={team.id}
-                      {...registerCreate("teamIds", { required: "Select at least one team" })}
-                      className="rounded"
-                    />
-                    <span>{team.name}</span>
-                  </label>
-                ))}
-              </div>
-              {errorsCreate.teamIds && (
-                <p className="text-red-600 dark:text-red-400 text-sm">{errorsCreate.teamIds.message}</p>
-              )}
-            </div>
-
-            {/* Suggested Apps */}
-            {suggestedApps && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-lg dark:text-white">Select Apps/Domains</h3>
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedAppType}
-                      onChange={(e) => setSelectedAppType(e.target.value as AppType | "all")}
-                      className="px-3 py-1 border border-slate-200 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                    >
-                      <option value="all">All Types</option>
-                      <option value="desktop">Desktop</option>
-                      <option value="web">Web</option>
-                    </select>
-                    {selectedRules.length > 0 && (
-                      <div className="flex gap-2">
-                        <select
-                          value={bulkCategory}
-                          onChange={(e) => setBulkCategory(e.target.value as AppCategory)}
-                          className="px-3 py-1 border border-slate-200 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                        >
-                          <option value="productive">Productive</option>
-                          <option value="unproductive">Unproductive</option>
-                          <option value="neutral">Neutral</option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={applyBulkCategory}
-                          className="px-3 py-1 bg-gray-600 dark:bg-gray-500 text-white rounded text-sm hover:bg-gray-700 dark:hover:bg-gray-600"
-                        >
-                          Apply to Selected
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Desktop Apps */}
-                  {(selectedAppType === "all" || selectedAppType === "desktop") && (
-                    <div>
-                      <h4 className="font-medium mb-2 dark:text-white">Desktop Applications</h4>
-                      <div className="max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-3 space-y-2 bg-white dark:bg-slate-800">
-                        {getDisplayedSuggestions().desktop.map((app) => {
-                          const isSelected = selectedRules.some(
-                            (r) => r.appName === app.appName && r.appType === app.appType
-                          );
-                          const selectedRule = selectedRules.find(
-                            (r) => r.appName === app.appName && r.appType === app.appType
-                          );
-                          return (
-                            <div
-                              key={`${app.appType}-${app.appName}`}
-                              className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-slate-700 rounded text-slate-900 dark:text-slate-100"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleRuleSelection(app)}
-                                className="rounded"
-                              />
-                              <span className="flex-1">{app.appName}</span>
-                              {isSelected && (
-                                <select
-                                  value={selectedRule?.category || app.suggestedCategory}
-                                  onChange={(e) =>
-                                    updateRuleCategory(
-                                      app.appName,
-                                      app.appType,
-                                      e.target.value as AppCategory
-                                    )
-                                  }
-                                  className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                                >
-                                  <option value="productive">Productive</option>
-                                  <option value="unproductive">Unproductive</option>
-                                  <option value="neutral">Neutral</option>
-                                </select>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Web Domains */}
-                  {(selectedAppType === "all" || selectedAppType === "web") && (
-                    <div>
-                      <h4 className="font-medium mb-2 dark:text-white">Web Domains</h4>
-                      <div className="max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-3 space-y-2 bg-white dark:bg-slate-800">
-                        {getDisplayedSuggestions().web.map((app) => {
-                          const isSelected = selectedRules.some(
-                            (r) => r.appName === app.appName && r.appType === app.appType
-                          );
-                          const selectedRule = selectedRules.find(
-                            (r) => r.appName === app.appName && r.appType === app.appType
-                          );
-                          return (
-                            <div
-                              key={`${app.appType}-${app.appName}`}
-                              className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-slate-700 rounded text-slate-900 dark:text-slate-100"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleRuleSelection(app)}
-                                className="rounded"
-                              />
-                              <span className="flex-1">{app.appName}</span>
-                              {isSelected && (
-                                <select
-                                  value={selectedRule?.category || app.suggestedCategory}
-                                  onChange={(e) =>
-                                    updateRuleCategory(
-                                      app.appName,
-                                      app.appType,
-                                      e.target.value as AppCategory
-                                    )
-                                  }
-                                  className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                                >
-                                  <option value="productive">Productive</option>
-                                  <option value="unproductive">Unproductive</option>
-                                  <option value="neutral">Neutral</option>
-                                </select>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Custom URL/Domain Input */}
-                <div className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-4">
-                  <h4 className="font-medium dark:text-white">Add Custom URL or Domain</h4>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="e.g., github.com or https://github.com/login"
-                      className="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && e.currentTarget.value.trim()) {
-                          const value = e.currentTarget.value.trim();
-                          const newRule: SelectedRule = {
-                            appName: value,
-                            appType: "web",
-                            category: "neutral",
-                            ruleType: value.includes("://") || value.includes("/") ? RuleType.URL_EXACT : RuleType.DOMAIN,
-                          };
-                          setSelectedRules((prev) => [...prev, newRule]);
-                          e.currentTarget.value = "";
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                        if (input?.value.trim()) {
-                          const value = input.value.trim();
-                          const newRule: SelectedRule = {
-                            appName: value,
-                            appType: "web",
-                            category: "neutral",
-                            ruleType: value.includes("://") || value.includes("/") ? RuleType.URL_EXACT : RuleType.DOMAIN,
-                          };
-                          setSelectedRules((prev) => [...prev, newRule]);
-                          input.value = "";
-                        }
-                      }}
-                      className="px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white rounded text-sm hover:bg-blue-700 dark:hover:bg-blue-600"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
-
-                {/* Selected Rules Summary */}
-                {selectedRules.length > 0 && (
-                  <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                    <h4 className="font-medium mb-2 dark:text-white">
-                      Selected: {selectedRules.length} app(s)
-                    </h4>
-                    <div className="max-h-40 overflow-y-auto space-y-2">
-                      {selectedRules.map((rule, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2 bg-gray-50 dark:bg-slate-700 rounded text-sm text-slate-900 dark:text-slate-100"
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-medium">
-                              {rule.appName} ({rule.appType})
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSelectedRules((prev) =>
-                                  prev.filter((_, i) => i !== idx)
-                                )
-                              }
-                              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
-                            >
-                              <BiX size={16} />
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {rule.appType === "web" && (
-                              <>
-                                <select
-                                  value={rule.ruleType || RuleType.DOMAIN}
-                                  onChange={(e) =>
-                                    updateRuleType(rule.appName, rule.appType, e.target.value as RuleType)
-                                  }
-                                  className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                                >
-                                  <option value={RuleType.DOMAIN}>Domain</option>
-                                  <option value={RuleType.URL_EXACT}>Exact URL</option>
-                                  <option value={RuleType.URL_PATTERN}>Pattern</option>
-                                </select>
-                                {(rule.ruleType === RuleType.URL_EXACT || rule.ruleType === RuleType.URL_PATTERN) && (
-                                  <input
-                                    type="text"
-                                    placeholder="Pattern (e.g., github.com/*/issues)"
-                                    value={rule.pattern || ""}
-                                    onChange={(e) =>
-                                      updateRulePattern(rule.appName, rule.appType, e.target.value)
-                                    }
-                                    className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 flex-1 min-w-[200px]"
-                                  />
-                                )}
-                              </>
-                            )}
-                            <select
-                              value={rule.category}
-                              onChange={(e) =>
-                                updateRuleCategory(rule.appName, rule.appType, e.target.value as AppCategory)
-                              }
-                              className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                            >
-                              <option value="productive">Productive</option>
-                              <option value="unproductive">Unproductive</option>
-                              <option value="neutral">Neutral</option>
-                            </select>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </ModalForm>
-
-        {/* Edit Modal */}
-        <ModalForm
-          isOpen={isEditModalOpen}
+        {/* View Drawer */}
+        <ViewCollectionDrawer
+          isOpen={isViewDrawerOpen}
           onClose={() => {
-            setIsEditModalOpen(false);
+            setIsViewDrawerOpen(false);
             setSelectedCollection(null);
-            resetEdit();
+            setViewCollectionRules([]);
+            setIsLoadingViewRules(false);
           }}
-          title="Edit Collection"
-          onSubmit={handleSubmitEdit(handleEdit)}
-          isSubmitting={isSubmittingEdit}
-        >
-          <div className="space-y-4">
-            <FloatingInput
-              label="Collection Name"
-              {...registerEdit("name", { required: "Name is required" })}
-              error={errorsEdit.name?.message}
-            />
-            <FloatingInput
-              label="Description"
-              {...registerEdit("description")}
-              error={errorsEdit.description?.message}
-            />
-          </div>
-        </ModalForm>
+          collection={viewCollection || selectedCollection}
+          rules={viewCollectionRules.length > 0 ? viewCollectionRules : collectionRules}
+          teams={teams}
+          isLoading={isLoadingViewRules || isLoadingRules}
+        />
+
+        {/* Edit Drawer */}
+        {selectedCollection && (
+          <RuleCollectionDrawer
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false);
+              setSelectedCollection(null);
+              resetEdit();
+              setSelectedRules([]);
+            }}
+            onSubmit={handleSubmitEdit(handleEdit)}
+            isLoading={isSubmittingEdit}
+            teams={teams}
+            suggestedApps={suggestedApps}
+            selectedRules={selectedRules}
+            setSelectedRules={setSelectedRules}
+            selectedAppType={selectedAppType}
+            setSelectedAppType={setSelectedAppType}
+            bulkCategory={bulkCategory}
+            setBulkCategory={setBulkCategory}
+            applyBulkCategory={applyBulkCategory}
+            toggleRuleSelection={toggleRuleSelection}
+            updateRuleCategory={updateRuleCategory}
+            updateRuleType={updateRuleType}
+            updateRulePattern={updateRulePattern}
+            register={registerEdit}
+            errors={errorsEdit}
+            customInputRef={customInputRef}
+            mode="edit"
+            initialCollection={
+              selectedCollection
+                ? {
+                    id: selectedCollection.id,
+                    name: selectedCollection.name,
+                    description: selectedCollection.description || undefined,
+                    teamIds:
+                      selectedCollection.teamAssignments?.map((ta) => ta.teamId) || [],
+                    rules: selectedRules.length > 0 
+                      ? selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule)
+                      : undefined,
+                  }
+                : null
+            }
+          />
+        )}
 
         {/* Delete Dialog */}
         <ConfirmDialog

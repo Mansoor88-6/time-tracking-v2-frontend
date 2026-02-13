@@ -1,5 +1,6 @@
 import { apiClient } from "../apiClient";
 import { AppType, AppCategory } from "./productivity-rules";
+import { TeamProductivityRule, productivityRulesApi } from "./productivity-rules";
 
 export interface RuleCollection {
   id: number;
@@ -58,6 +59,7 @@ export interface CreateCollectionDto {
 export interface UpdateCollectionDto {
   name?: string;
   description?: string;
+  teamIds?: number[]; // For updating team assignments
 }
 
 export interface AddRulesToCollectionDto {
@@ -97,6 +99,35 @@ export const ruleCollectionsApi = {
 
   get: async (id: number): Promise<RuleCollection> => {
     return apiClient<RuleCollection>(`/rule-collections/${id}`);
+  },
+
+  getCollectionRules: async (collectionId: number): Promise<TeamProductivityRule[]> => {
+    try {
+      // Try the direct endpoint first (if it exists)
+      return await apiClient<TeamProductivityRule[]>(`/rule-collections/${collectionId}/rules`);
+    } catch (err) {
+      // Fallback: Get collection to find assigned teams, then get rules from those teams and filter by collectionId
+      const collection = await ruleCollectionsApi.get(collectionId);
+      const teamIds = collection.teamAssignments?.map((ta) => ta.teamId) || [];
+      
+      if (teamIds.length === 0) {
+        return [];
+      }
+
+      // Fetch rules from all assigned teams and filter by collectionId
+      const allRules: TeamProductivityRule[] = [];
+      for (const teamId of teamIds) {
+        try {
+          const teamRules = await productivityRulesApi.getTeamRules(teamId);
+          allRules.push(...teamRules);
+        } catch (err) {
+          console.error(`Failed to load rules for team ${teamId}:`, err);
+        }
+      }
+
+      // Filter rules that belong to this collection
+      return allRules.filter((rule) => rule.collectionId === collectionId);
+    }
   },
 
   update: async (

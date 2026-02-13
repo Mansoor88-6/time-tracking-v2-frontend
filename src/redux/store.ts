@@ -8,6 +8,7 @@ import { setupListeners } from "@reduxjs/toolkit/query";
 import authReducer, { setTokens } from "./features/auth/authSlice";
 import rbacReducer from "./features/rbac/rbacSlice";
 import { authApi } from "./services/authApi";
+import { ruleCollectionsApi } from "./services/ruleCollectionsApi";
 import { resetState } from "./features/reset";
 import { getAccessToken, getRefreshToken } from "@/lib/cookies";
 
@@ -16,6 +17,7 @@ const appReducer = combineReducers({
   auth: authReducer,
   rbac: rbacReducer,
   [authApi.reducerPath]: authApi.reducer,
+  [ruleCollectionsApi.reducerPath]: ruleCollectionsApi.reducer,
 });
 
 // Define RootState type based on appReducer
@@ -34,7 +36,7 @@ export const rootReducer: Reducer<RootState, AnyAction> = (state, action) => {
 export const store = configureStore({
   reducer: rootReducer,
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(authApi.middleware),
+    getDefaultMiddleware().concat(authApi.middleware, ruleCollectionsApi.middleware),
 });
 
 // Initialize auth state from cookies after store creation (runs once on app load)

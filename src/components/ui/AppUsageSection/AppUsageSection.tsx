@@ -6,6 +6,7 @@ import { MdExpandMore, MdExpandLess } from "react-icons/md";
 import { FiGlobe } from "react-icons/fi";
 import { AppUsageTooltip } from "../AppUsageTooltip/AppUsageTooltip";
 import type { UrlBreakdown } from "@/services/appUsage";
+import { getCategoryStylesUtil } from "@/theme/utils";
 
 export interface AppUsageItem {
   id: string;
@@ -24,30 +25,6 @@ interface AppUsageSectionProps {
   className?: string;
 }
 
-const categoryStyles = {
-  productive: {
-    headerBg: "bg-white dark:bg-gray-800",
-    headerText: "text-gray-900 dark:text-gray-100",
-    border: "border-green-300 dark:border-green-700",
-    borderAccent: "border-l-4 border-l-green-500 dark:border-l-green-400",
-    bg: "bg-white dark:bg-gray-800",
-  },
-  unproductive: {
-    headerBg: "bg-white dark:bg-gray-800",
-    headerText: "text-gray-900 dark:text-gray-100",
-    border: "border-orange-300 dark:border-orange-700",
-    borderAccent: "border-l-4 border-l-orange-500 dark:border-l-orange-400",
-    bg: "bg-white dark:bg-gray-800",
-  },
-  neutral: {
-    headerBg: "bg-white dark:bg-gray-800",
-    headerText: "text-gray-900 dark:text-gray-100",
-    border: "border-gray-300 dark:border-gray-700",
-    borderAccent: "border-l-4 border-l-gray-500 dark:border-l-gray-400",
-    bg: "bg-white dark:bg-gray-800",
-  },
-};
-
 // Default icon component for apps without custom icons
 const DefaultAppIcon = ({ className }: { className?: string }) => (
   <FiGlobe className={cn("w-5 h-5 text-gray-600 dark:text-gray-400", className)} />
@@ -62,7 +39,14 @@ export function AppUsageSection({
   className,
 }: AppUsageSectionProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const styles = categoryStyles[category];
+  const categoryStyles = getCategoryStylesUtil(category);
+  const styles = {
+    headerBg: categoryStyles.bg,
+    headerText: categoryStyles.text,
+    border: categoryStyles.border,
+    borderAccent: categoryStyles.accent || "",
+    bg: categoryStyles.bg,
+  };
 
   const formatTime = (time: string) => {
     // Ensure consistent formatting

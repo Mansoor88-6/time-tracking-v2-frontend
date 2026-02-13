@@ -11,6 +11,8 @@ export interface TeamProductivityRule {
   appName: string;
   appType: AppType;
   category: AppCategory;
+  ruleType?: string; // RuleType enum value
+  pattern?: string | null;
   createdAt?: string;
   updatedAt?: string;
   collection?: {

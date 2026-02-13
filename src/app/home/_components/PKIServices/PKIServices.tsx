@@ -2,6 +2,7 @@
 import React, { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { getColorClassesUtil } from "@/theme/utils";
 
 // Register GSAP plugins
 if (typeof window !== "undefined") {
@@ -170,45 +171,7 @@ const PKIServices = () => {
   ];
 
   const getColorClasses = (color: string) => {
-    const colors = {
-      blue: {
-        bg: "bg-blue-50 dark:bg-blue-900/20",
-        border: "border-blue-200 dark:border-blue-800",
-        icon: "text-blue-600 dark:text-blue-400",
-        badge: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
-      },
-      purple: {
-        bg: "bg-purple-50 dark:bg-purple-900/20",
-        border: "border-purple-200 dark:border-purple-800",
-        icon: "text-purple-600 dark:text-purple-400",
-        badge: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300"
-      },
-      green: {
-        bg: "bg-green-50 dark:bg-green-900/20",
-        border: "border-green-200 dark:border-green-800",
-        icon: "text-green-600 dark:text-green-400",
-        badge: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
-      },
-      orange: {
-        bg: "bg-orange-50 dark:bg-orange-900/20",
-        border: "border-orange-200 dark:border-orange-800",
-        icon: "text-orange-600 dark:text-orange-400",
-        badge: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300"
-      },
-      red: {
-        bg: "bg-red-50 dark:bg-red-900/20",
-        border: "border-red-200 dark:border-red-800",
-        icon: "text-red-600 dark:text-red-400",
-        badge: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
-      },
-      cyan: {
-        bg: "bg-cyan-50 dark:bg-cyan-900/20",
-        border: "border-cyan-200 dark:border-cyan-800",
-        icon: "text-cyan-600 dark:text-cyan-400",
-        badge: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-300"
-      }
-    };
-    return colors[color as keyof typeof colors] || colors.blue;
+    return getColorClassesUtil(color as any);
   };
 
   return (

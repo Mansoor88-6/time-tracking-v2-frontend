@@ -1,5 +1,6 @@
 import { cn } from "@/utils/tw";
 import { CircularProgress } from "../CircularProgress/CircularProgress";
+import { getProgressValueColor } from "@/theme/utils";
 
 interface StatCardProps {
   label: string;
@@ -29,11 +30,7 @@ export function StatCard({
     // - Default: green-ish for time/duration/etc.
     // - Percent cards: color depends on the progress value.
     if (!hasProgress) return "text-emerald-700";
-
-    const p = Math.max(0, Math.min(100, progress ?? 0));
-    if (p < 40) return "text-red-600";
-    if (p < 70) return "text-amber-600";
-    return "text-emerald-700";
+    return getProgressValueColor(progress ?? 0);
   })();
 
   return (
