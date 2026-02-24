@@ -15,9 +15,7 @@ import {
   useCreateCollectionMutation,
   useUpdateCollectionMutation,
   useDeleteCollectionMutation,
-  useAddRulesToCollectionMutation,
-  useRemoveRuleFromCollectionMutation,
-  useUpdateCollectionMutation as useUpdateCollectionMetadataMutation,
+  ruleCollectionsApi as rtkRuleCollectionsApi,
 } from "@/redux/services/ruleCollectionsApi";
 import {
   ruleCollectionsApi,
@@ -29,13 +27,16 @@ import {
 import { AppType, AppCategory } from "@/lib/api/productivity-rules";
 import { teamsApi, Team } from "@/lib/api/teams";
 import { productivityRulesApi, TeamProductivityRule } from "@/lib/api/productivity-rules";
-import { useAppSelector } from "@/redux/hooks";
+import { useAppSelector, useAppDispatch } from "@/redux/hooks";
 import { useEffect, useState, useRef } from "react";
 import { BiPlus, BiEdit, BiTrash, BiX, BiCheck, BiShow } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { toast } from "react-toastify";
 import { getColorClassesUtil, getSemanticColor, getPrimaryButtonStyle } from "@/theme/utils";
+
+// Stable empty array to avoid infinite useEffect loops when RTK Query returns undefined (default [] is a new ref every render)
+const EMPTY_COLLECTION_RULES: TeamProductivityRule[] = [];
 
 interface CollectionFormData {
   name: string;
@@ -85,12 +86,13 @@ const CollectionsPage = () => {
   });
 
   const {
-    data: collectionRules = [],
+    data: collectionRulesData,
     isLoading: isLoadingRules,
     refetch: refetchCollectionRules,
   } = useGetCollectionRulesQuery(selectedCollection?.id ?? 0, {
     skip: !selectedCollection?.id || !isViewDrawerOpen,
   });
+  const collectionRules = collectionRulesData ?? EMPTY_COLLECTION_RULES;
 
   // Fallback: Load rules directly if RTK Query doesn't return data
   useEffect(() => {
@@ -114,11 +116,10 @@ const CollectionsPage = () => {
     }
   }, [isViewDrawerOpen, selectedCollection?.id, collectionRules, isLoadingRules]);
 
+  const dispatch = useAppDispatch();
   const [createCollection] = useCreateCollectionMutation();
   const [updateCollection] = useUpdateCollectionMutation();
   const [deleteCollection] = useDeleteCollectionMutation();
-  const [addRulesToCollection] = useAddRulesToCollectionMutation();
-  const [removeRuleFromCollection] = useRemoveRuleFromCollectionMutation();
 
   const {
     register: registerCreate,
@@ -196,70 +197,27 @@ const CollectionsPage = () => {
 
   const handleEdit = async (data: CollectionFormData) => {
     if (!selectedCollection) return;
+    const collectionId = selectedCollection.id;
     try {
-      // Update collection metadata
+      const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
+
       await updateCollection({
-        id: selectedCollection.id,
+        id: collectionId,
         data: {
           name: data.name,
           description: data.description,
+          teamIds: data.teamIds.map((id) => parseInt(id, 10)),
+          rules: rulesToSend,
         },
       }).unwrap();
 
-      // Handle rule changes
-      const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
-      
-      // Get existing rules for comparison
-      const existingRules = await ruleCollectionsApi.getCollectionRules(selectedCollection.id);
-      
-      // Find rules to add (new rules not in existing)
-      const existingRuleKeys = new Set(
-        existingRules.map((r) => `${r.appName}-${r.appType}`)
+      dispatch(
+        rtkRuleCollectionsApi.util.invalidateTags([
+          { type: "CollectionRules", id: collectionId },
+          { type: "Collection", id: collectionId },
+          { type: "Collection", id: "LIST" },
+        ])
       );
-      const newRules = rulesToSend.filter(
-        (r) => !existingRuleKeys.has(`${r.appName}-${r.appType}`)
-      );
-
-      // Find rules to remove (existing rules not in selected)
-      const selectedRuleKeys = new Set(
-        rulesToSend.map((r) => `${r.appName}-${r.appType}`)
-      );
-      const rulesToRemove = existingRules.filter(
-        (r) => !selectedRuleKeys.has(`${r.appName}-${r.appType}`)
-      );
-
-      // Add new rules
-      if (newRules.length > 0) {
-        await addRulesToCollection({
-          id: selectedCollection.id,
-          data: { rules: newRules },
-        }).unwrap();
-      }
-
-      // Remove deleted rules
-      for (const rule of rulesToRemove) {
-        await removeRuleFromCollection(rule.id).unwrap();
-      }
-
-      // Update team assignments if changed
-      const currentTeamIds = selectedCollection.teamAssignments?.map((ta) => ta.teamId) || [];
-      const newTeamIds = data.teamIds.map((id) => parseInt(id));
-      const teamIdsChanged =
-        currentTeamIds.length !== newTeamIds.length ||
-        currentTeamIds.some((id) => !newTeamIds.includes(id));
-
-      if (teamIdsChanged) {
-        // Remove all current assignments
-        for (const teamId of currentTeamIds) {
-          await ruleCollectionsApi.unassignFromTeam(selectedCollection.id, teamId);
-        }
-        // Add new assignments
-        if (newTeamIds.length > 0) {
-          await ruleCollectionsApi.assignToTeams(selectedCollection.id, {
-            teamIds: newTeamIds,
-          });
-        }
-      }
 
       toast.success("Collection updated successfully");
       setIsEditModalOpen(false);

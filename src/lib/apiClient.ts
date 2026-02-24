@@ -127,6 +127,11 @@ export const apiClient = async <T>(
     throw new Error(errorMessage);
   }
 
+  // 204 No Content (e.g. DELETE) - no body, do not parse JSON
+  if (response.status === 204) {
+    return undefined as Promise<T>;
+  }
+
   return response.json() as Promise<T>;
 };
 

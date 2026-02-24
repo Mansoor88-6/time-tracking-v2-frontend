@@ -8,12 +8,18 @@ import { AppUsageTooltip } from "../AppUsageTooltip/AppUsageTooltip";
 import type { UrlBreakdown } from "@/services/appUsage";
 import { getCategoryStylesUtil } from "@/theme/utils";
 
+export type AppUsageCategory = "productive" | "unproductive" | "neutral";
+
 export interface AppUsageItem {
   id: string;
   name: string;
   icon?: React.ReactNode;
   timeSpent: string; // e.g., "1h 58m", "25m", "14s"
   urlBreakdown?: UrlBreakdown[]; // Breakdown by URL/title
+  /** Other categories this app appears in (e.g. same domain, different URLs) */
+  alsoInCategories?: AppUsageCategory[];
+  /** When same domain appears in multiple categories: show this specific URL/path as main label */
+  displayLabel?: string;
 }
 
 interface AppUsageSectionProps {
@@ -97,7 +103,7 @@ export function AppUsageSection({
               {apps.map((app) => (
                 <AppUsageTooltip
                   key={app.id}
-                  appName={app.name}
+                  appName={app.displayLabel ?? app.name}
                   totalTime={app.timeSpent}
                   urlBreakdown={app.urlBreakdown || []}
                 >
@@ -122,12 +128,22 @@ export function AppUsageSection({
 
                     {/* App Name and Time */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {app.name}
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" title={app.displayLabel || app.name}>
+                        {app.displayLabel ?? app.name}
                       </p>
+                      {app.displayLabel && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate" title={app.name}>
+                          {app.name}
+                        </p>
+                      )}
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {formatTime(app.timeSpent)}
                       </p>
+                      {app.alsoInCategories && app.alsoInCategories.length > 0 && !app.displayLabel && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 italic">
+                          Also in {app.alsoInCategories.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </AppUsageTooltip>

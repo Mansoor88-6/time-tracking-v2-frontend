@@ -56,10 +56,19 @@ export interface CreateCollectionDto {
   }>;
 }
 
+export interface UpdateCollectionRuleDto {
+  appName: string;
+  appType: AppType;
+  category: AppCategory;
+  ruleType?: RuleType;
+  pattern?: string;
+}
+
 export interface UpdateCollectionDto {
   name?: string;
   description?: string;
-  teamIds?: number[]; // For updating team assignments
+  teamIds?: number[];
+  rules?: UpdateCollectionRuleDto[];
 }
 
 export interface AddRulesToCollectionDto {

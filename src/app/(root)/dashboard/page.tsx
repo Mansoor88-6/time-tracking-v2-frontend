@@ -173,6 +173,14 @@ function mapStatsToCards(
   ];
 }
 
+/** Shorten URL for display: strip protocol, truncate to maxLen. Used when same domain appears in multiple categories. */
+function urlToDisplayLabel(url: string, maxLen = 56): string {
+  if (!url || !url.trim()) return "";
+  const withoutProtocol = url.replace(/^https?:\/\//i, "").trim();
+  if (withoutProtocol.length <= maxLen) return withoutProtocol;
+  return withoutProtocol.slice(0, maxLen - 3) + "...";
+}
+
 /**
  * Transform app usage API response to AppUsageItem format
  */
@@ -199,20 +207,40 @@ function transformAppUsage(appUsage: AppUsageStatsResponse | undefined): {
     };
   }
 
-  const transformApps = (apps: typeof appUsage.productive): AppUsageItem[] => {
-    return apps.map((app, index) => ({
-      id: `${app.category}-${index}-${app.appName}`,
-      name: app.appName,
-      icon: getAppIcon(app.appName, app.appType),
-      timeSpent: formatDuration(app.productiveTimeMs),
-      urlBreakdown: app.urlBreakdown || [], // Include URL breakdown for tooltip
-    }));
+  const namesInProductive = new Set(appUsage.productive.map((a) => a.appName));
+  const namesInUnproductive = new Set(appUsage.unproductive.map((a) => a.appName));
+  const namesInNeutral = new Set(appUsage.neutral.map((a) => a.appName));
+
+  const transformApps = (
+    apps: typeof appUsage.productive,
+    currentCategory: "productive" | "unproductive" | "neutral"
+  ): AppUsageItem[] => {
+    return apps.map((app, index) => {
+      const alsoInCategories: ("productive" | "unproductive" | "neutral")[] = [];
+      if (currentCategory !== "productive" && namesInProductive.has(app.appName)) alsoInCategories.push("productive");
+      if (currentCategory !== "unproductive" && namesInUnproductive.has(app.appName)) alsoInCategories.push("unproductive");
+      if (currentCategory !== "neutral" && namesInNeutral.has(app.appName)) alsoInCategories.push("neutral");
+      const firstUrl = app.urlBreakdown?.[0]?.url;
+      const displayLabel =
+        alsoInCategories.length > 0 && app.appType === "web" && firstUrl
+          ? urlToDisplayLabel(firstUrl)
+          : undefined;
+      return {
+        id: `${app.category}-${index}-${app.appName}`,
+        name: app.appName,
+        icon: getAppIcon(app.appName, app.appType),
+        timeSpent: formatDuration(app.productiveTimeMs),
+        urlBreakdown: app.urlBreakdown || [],
+        ...(alsoInCategories.length > 0 ? { alsoInCategories } : {}),
+        ...(displayLabel ? { displayLabel } : {}),
+      };
+    });
   };
 
   return {
-    productive: transformApps(appUsage.productive),
-    unproductive: transformApps(appUsage.unproductive),
-    neutral: transformApps(appUsage.neutral),
+    productive: transformApps(appUsage.productive, "productive"),
+    unproductive: transformApps(appUsage.unproductive, "unproductive"),
+    neutral: transformApps(appUsage.neutral, "neutral"),
     totals: {
       productive: formatCategoryTotal(appUsage.totals.productive),
       unproductive: formatCategoryTotal(appUsage.totals.unproductive),
@@ -322,14 +350,18 @@ const OrgDashboardPage = () => {
     setCustomEndDate(endDate);
   };
 
-  // Fetch app usage stats (for individual dashboard only, using single date for now)
-  const dateForAppUsage = dateRange.date || dateRange.startDate || new Date().toISOString().split('T')[0];
+  // Fetch app usage stats (aligned with dashboard filters: same date or date range)
   const {
     data: appUsageData,
     isLoading: isAppUsageLoading,
     isError: isAppUsageError,
     error: appUsageError,
-  } = useAppUsageStats(dateForAppUsage, timezone);
+  } = useAppUsageStats({
+    date: dateRange.date,
+    startDate: dateRange.startDate,
+    endDate: dateRange.endDate,
+    timezone,
+  });
 
   // Load users and teams for filters (ORG_ADMIN only)
   useEffect(() => {

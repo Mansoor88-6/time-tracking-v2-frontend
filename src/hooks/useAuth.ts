@@ -33,6 +33,5 @@ export const useAuth = () => {
       }
     }
   }, [data, dispatch]);
-  console.log(`from useAuth hook: ${JSON.stringify(data)}`);
   return { isLoading, error };
 };

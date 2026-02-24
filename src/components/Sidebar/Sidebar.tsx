@@ -337,6 +337,12 @@ const data: SidebarData = {
           ],
         },
         {
+          name: "User Management",
+          url: "/users",
+          icon: "UserPlus",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
+        },
+        {
           name: "Teams",
           url: "/teams",
           icon: "Users",
@@ -384,18 +390,6 @@ const data: SidebarData = {
       heading: "Administration",
       showHeading: true,
       items: [
-        {
-          name: "Users",
-          url: "/users",
-          icon: "Users",
-          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
-        },
-        {
-          name: "Invitations",
-          url: "/invitations",
-          icon: "UserPlus",
-          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
-        },
         {
           name: "Productivity Rules",
           url: "/productivity-rules/collections",

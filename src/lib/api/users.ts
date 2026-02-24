@@ -10,6 +10,7 @@ export interface User {
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  teams?: { id: number; name: string }[];
 }
 
 export interface CreateUserDto {
