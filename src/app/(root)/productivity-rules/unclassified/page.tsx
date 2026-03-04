@@ -13,7 +13,7 @@ import {
   AppCategory,
   UnclassifiedAppStatus,
 } from "@/lib/api/productivity-rules";
-import { ruleCollectionsApi, RuleCollection, RuleType } from "@/lib/api/rule-collections";
+import { ruleCollectionsApi, RuleCollection } from "@/lib/api/rule-collections";
 import { teamsApi, Team } from "@/lib/api/teams";
 import { useAppSelector } from "@/redux/hooks";
 import { useEffect, useState, useMemo } from "react";
@@ -24,8 +24,7 @@ import { getColorClassesUtil, getSemanticColor, getCategoryStylesUtil, getPrimar
 
 interface ClassifyFormData {
   category: AppCategory;
-  applyToTeamId?: string;
-  collectionId?: string;
+  collectionId: string;
 }
 
 interface BulkAddToCollectionFormData {
@@ -138,14 +137,17 @@ const UnclassifiedAppsPage = () => {
 
   const handleClassify = async (data: ClassifyFormData) => {
     if (!selectedApp) return;
+    if (!data.collectionId) {
+      toast.error("Please select a collection");
+      return;
+    }
     try {
       await productivityRulesApi.classifyUnclassified({
-        appName: selectedApp.appName,
-        appType: selectedApp.appType,
+        unclassifiedId: selectedApp.id,
+        collectionId: parseInt(data.collectionId, 10),
         category: data.category,
-        applyToTeamId: data.applyToTeamId ? parseInt(data.applyToTeamId) : undefined,
       });
-      toast.success("App classified successfully");
+      toast.success("App classified successfully and added to collection");
       setIsClassifyModalOpen(false);
       setSelectedApp(null);
       resetClassify();
@@ -155,94 +157,66 @@ const UnclassifiedAppsPage = () => {
     }
   };
 
-  const handleBulkClassify = async (category: AppCategory, teamId?: number) => {
-    if (selectedApps.length === 0) {
-      toast.warning("Please select apps to classify");
+  const handleBulkClassify = async (data: BulkAddToCollectionFormData) => {
+    if (selectedApps.length === 0) return;
+    if (!data.collectionId) {
+      toast.error("Please select a collection");
       return;
     }
-
-    try {
-      const appsToClassify = unclassifiedApps.filter((app) =>
-        selectedApps.includes(app.id)
-      );
-
-      for (const app of appsToClassify) {
-        try {
-          await productivityRulesApi.classifyUnclassified({
-            appName: app.appName,
-            appType: app.appType,
-            category,
-            applyToTeamId: teamId,
-          });
-        } catch (err) {
-          console.error(`Failed to classify ${app.appName}:`, err);
-        }
+    const appsToClassify = unclassifiedApps.filter((app) =>
+      selectedApps.includes(app.id)
+    );
+    let successCount = 0;
+    for (const app of appsToClassify) {
+      try {
+        await productivityRulesApi.classifyUnclassified({
+          unclassifiedId: app.id,
+          collectionId: parseInt(data.collectionId, 10),
+          category: data.category,
+        });
+        successCount += 1;
+      } catch (err) {
+        console.error(`Failed to classify ${app.appName}:`, err);
       }
-
-      toast.success(`Classified ${appsToClassify.length} app(s) successfully`);
-      setSelectedApps([]);
-      await loadUnclassifiedApps();
-    } catch (err) {
-      toast.error("Failed to classify apps");
     }
+    toast.success(
+      `Classified ${successCount} of ${appsToClassify.length} app(s) and added to collection`
+    );
+    setSelectedApps([]);
+    setIsBulkAddModalOpen(false);
+    resetBulkAdd();
+    await loadUnclassifiedApps();
   };
 
   const handleBulkAddToCollection = async (data: BulkAddToCollectionFormData) => {
-    if (selectedApps.length === 0) {
-      toast.warning("Please select apps to add");
+    if (selectedApps.length === 0) return;
+    if (!data.collectionId) {
+      toast.error("Please select a collection");
       return;
     }
-
-    try {
-      const appsToAdd = unclassifiedApps.filter((app) =>
-        selectedApps.includes(app.id)
-      );
-
-      const rules = appsToAdd.map((app) => ({
-        appName: app.appName,
-        appType: app.appType,
-        category: data.category,
-      }));
-
-      // Add rules to collection
-      await ruleCollectionsApi.addRules(parseInt(data.collectionId), { rules });
-
-      // If teamId is specified, ensure collection is assigned to that team
-      if (data.teamId) {
-        try {
-          await ruleCollectionsApi.assignToTeams(parseInt(data.collectionId), {
-            teamIds: [parseInt(data.teamId)],
-          });
-        } catch (err) {
-          // Team might already be assigned, ignore error
-          console.error("Failed to assign collection to team:", err);
-        }
+    const appsToAdd = unclassifiedApps.filter((app) =>
+      selectedApps.includes(app.id)
+    );
+    let successCount = 0;
+    for (const app of appsToAdd) {
+      try {
+        await productivityRulesApi.classifyUnclassified({
+          unclassifiedId: app.id,
+          collectionId: parseInt(data.collectionId, 10),
+          category: data.category,
+        });
+        successCount += 1;
+      } catch (err) {
+        console.error(`Failed to classify ${app.appName}:`, err);
       }
-
-      // Classify all apps
-      for (const app of appsToAdd) {
-        try {
-          await productivityRulesApi.classifyUnclassified({
-            appName: app.appName,
-            appType: app.appType,
-            category: data.category,
-            applyToTeamId: data.teamId ? parseInt(data.teamId) : undefined,
-          });
-        } catch (err) {
-          console.error(`Failed to classify ${app.appName}:`, err);
-        }
-      }
-
-      toast.success(
-        `Added ${appsToAdd.length} app(s) to collection and classified successfully`
-      );
-      setSelectedApps([]);
-      setIsBulkAddModalOpen(false);
-      resetBulkAdd();
-      await loadUnclassifiedApps();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add apps to collection");
     }
+    toast.success(
+      `Added ${successCount} of ${appsToAdd.length} app(s) to collection and classified`
+    );
+    setSelectedApps([]);
+    setIsBulkAddModalOpen(false);
+    resetBulkAdd();
+    await loadUnclassifiedApps();
   };
 
   const toggleSelectApp = (appId: number) => {
@@ -282,35 +256,10 @@ const UnclassifiedAppsPage = () => {
     return str.includes('://') || str.includes('/');
   };
 
-  const handleQuickCreateDomainRule = async (app: UnclassifiedApp, category: AppCategory) => {
-    try {
-      const domain = extractDomain(app.appName);
-      // Find a collection or create a quick rule
-      if (collections.length > 0 && app.teamId) {
-        const collection = collections[0]; // Use first collection or let user choose
-        await ruleCollectionsApi.addRules(collection.id, {
-          rules: [{
-            appName: domain,
-            appType: "web",
-            category,
-            ruleType: RuleType.DOMAIN,
-          }],
-        });
-        toast.success(`Domain rule created for ${domain}`);
-      } else {
-        // Classify directly
-        await productivityRulesApi.classifyUnclassified({
-          appName: domain,
-          appType: "web",
-          category,
-          applyToTeamId: app.teamId || undefined,
-        });
-        toast.success(`Classified ${domain} as ${category}`);
-      }
-      await loadUnclassifiedApps();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create rule");
-    }
+  const openClassifyModalWithPreset = (app: UnclassifiedApp, category: AppCategory) => {
+    setSelectedApp(app);
+    resetClassify({ category, collectionId: "" });
+    setIsClassifyModalOpen(true);
   };
 
   const columns: AdminTableColumn<UnclassifiedApp>[] = [
@@ -414,16 +363,16 @@ const UnclassifiedAppsPage = () => {
             {app.appType === "web" && domain && (
               <>
                 <button
-                  onClick={() => handleQuickCreateDomainRule(app, "productive")}
+                  onClick={() => openClassifyModalWithPreset(app, "productive")}
                   className={`px-2 py-1 ${getCategoryStylesUtil("productive").badge} rounded text-xs hover:bg-green-200 dark:hover:bg-green-800`}
-                  title="Create domain rule (productive)"
+                  title="Classify as productive (pick collection)"
                 >
                   Domain: Prod
                 </button>
                 <button
-                  onClick={() => handleQuickCreateDomainRule(app, "unproductive")}
+                  onClick={() => openClassifyModalWithPreset(app, "unproductive")}
                   className={`px-2 py-1 ${getCategoryStylesUtil("unproductive").badge} rounded text-xs hover:bg-red-200 dark:hover:bg-red-800`}
-                  title="Create domain rule (unproductive)"
+                  title="Classify as unproductive (pick collection)"
                 >
                   Domain: Unprod
                 </button>
@@ -431,6 +380,7 @@ const UnclassifiedAppsPage = () => {
                   <button
                     onClick={() => {
                       setSelectedApp(app);
+                      resetClassify({ category: "productive", collectionId: "" });
                       setIsClassifyModalOpen(true);
                     }}
                     className={`px-2 py-1 ${getSemanticColor("info").badge} rounded text-xs hover:bg-blue-200 dark:hover:bg-blue-800`}
@@ -444,9 +394,10 @@ const UnclassifiedAppsPage = () => {
             <button
               onClick={() => {
                 setSelectedApp(app);
+                resetClassify({ category: "productive", collectionId: "" });
                 setIsClassifyModalOpen(true);
               }}
-                  className={`px-2 py-1 ${getCategoryStylesUtil("neutral").badge} rounded text-xs hover:bg-gray-200 dark:hover:bg-gray-600`}
+              className={`px-2 py-1 ${getCategoryStylesUtil("neutral").badge} rounded text-xs hover:bg-gray-200 dark:hover:bg-gray-600`}
               title="Classify"
             >
               Classify
@@ -506,21 +457,30 @@ const UnclassifiedAppsPage = () => {
                   Add to Collection ({selectedApps.length})
                 </button>
                 <button
-                  onClick={() => handleBulkClassify("productive")}
+                  onClick={() => {
+                    resetBulkAdd({ category: "productive", collectionId: "" });
+                    setIsBulkAddModalOpen(true);
+                  }}
                   className={`flex items-center gap-2 px-4 py-2 ${getSemanticColor("success").button} text-white rounded-lg`}
                 >
                   <BiCheck size={20} />
                   Mark as Productive ({selectedApps.length})
                 </button>
                 <button
-                  onClick={() => handleBulkClassify("unproductive")}
+                  onClick={() => {
+                    resetBulkAdd({ category: "unproductive", collectionId: "" });
+                    setIsBulkAddModalOpen(true);
+                  }}
                   className={`flex items-center gap-2 px-4 py-2 ${getSemanticColor("error").button} text-white rounded-lg`}
                 >
                   <BiX size={20} />
                   Mark as Unproductive ({selectedApps.length})
                 </button>
                 <button
-                  onClick={() => handleBulkClassify("neutral")}
+                  onClick={() => {
+                    resetBulkAdd({ category: "neutral", collectionId: "" });
+                    setIsBulkAddModalOpen(true);
+                  }}
                   className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
                 >
                   <BiMinus size={20} />
@@ -592,7 +552,7 @@ const UnclassifiedAppsPage = () => {
           }}
           title="Classify App"
           onSubmit={handleSubmitClassify(handleClassify)}
-          isSubmitting={isSubmittingClassify}
+          isLoading={isSubmittingClassify}
         >
           <div className="space-y-4">
             <div>
@@ -603,6 +563,25 @@ const UnclassifiedAppsPage = () => {
                 disabled
                 className="w-full px-3 py-2 border rounded-lg bg-gray-50"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Collection <span className="text-red-500">*</span></label>
+              <select
+                {...registerClassify("collectionId", { required: "Collection is required" })}
+                className="w-full px-3 py-2 border rounded-lg"
+              >
+                <option value="">Select a collection</option>
+                {collections.map((collection) => (
+                  <option key={collection.id} value={collection.id}>
+                    {collection.name}
+                    {collection.description ? ` - ${collection.description}` : ""}
+                  </option>
+                ))}
+              </select>
+              {errorsClassify.collectionId && (
+                <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsClassify.collectionId.message}</p>
+              )}
             </div>
 
             <div>
@@ -619,23 +598,6 @@ const UnclassifiedAppsPage = () => {
                 <p className={`${getSemanticColor("error").text} text-sm mt-1`}>{errorsClassify.category.message}</p>
               )}
             </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Apply to Team (optional)
-              </label>
-              <select
-                {...registerClassify("applyToTeamId")}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">Use app's team or org-wide</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
         </ModalForm>
 
@@ -648,7 +610,7 @@ const UnclassifiedAppsPage = () => {
           }}
           title={`Add ${selectedApps.length} App(s) to Collection`}
           onSubmit={handleSubmitBulkAdd(handleBulkAddToCollection)}
-          isSubmitting={isSubmittingBulkAdd}
+          isLoading={isSubmittingBulkAdd}
         >
           <div className="space-y-4">
             <div>
@@ -685,27 +647,11 @@ const UnclassifiedAppsPage = () => {
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Team (optional - will assign collection to this team if not already assigned)
-              </label>
-              <select
-                {...registerBulkAdd("teamId")}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">No specific team</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <p className="text-sm text-gray-600">
-                This will add {selectedApps.length} app(s) to the selected collection with the
-                chosen category, and classify them as reviewed.
+            <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                This will classify {selectedApps.length} app(s) and add them to the selected
+                collection with the chosen category. They will disappear from the pending list
+                and appear in the collection.
               </p>
             </div>
           </div>

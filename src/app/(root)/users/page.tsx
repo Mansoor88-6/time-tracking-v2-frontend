@@ -27,6 +27,15 @@ interface InviteFormData {
   teamIds?: number[];
 }
 
+interface CreateUserFormData {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  role: string;
+  teamIds?: number[];
+}
+
 const UsersPage = () => {
   const { user } = useAppSelector((state) => state.auth);
   const [users, setUsers] = useState<User[]>([]);
@@ -46,6 +55,12 @@ const UsersPage = () => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteTeams, setInviteTeams] = useState<Team[]>([]);
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [createUserTeams, setCreateUserTeams] = useState<Team[]>([]);
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    email: string;
+    password: string;
+  } | null>(null);
 
   const {
     register,
@@ -63,6 +78,18 @@ const UsersPage = () => {
     formState: { errors: errorsInvite, isSubmitting: isSubmittingInvite },
   } = useForm<InviteFormData>();
   const watchedInviteTeamIds = watchInvite("teamIds") || [];
+
+  const {
+    register: registerCreateUser,
+    handleSubmit: handleSubmitCreateUser,
+    reset: resetCreateUser,
+    watch: watchCreateUser,
+    setValue: setValueCreateUser,
+    formState: { errors: errorsCreateUser, isSubmitting: isSubmittingCreateUser },
+  } = useForm<CreateUserFormData>({
+    defaultValues: { role: "EMPLOYEE" },
+  });
+  const watchedCreateUserTeamIds = watchCreateUser("teamIds") || [];
 
   const loadUsers = async () => {
     try {
@@ -137,6 +164,71 @@ const UsersPage = () => {
         err instanceof Error ? err.message : "Failed to send invitation"
       );
     }
+  };
+
+  const openCreateUserModal = async () => {
+    setIsCreateUserModalOpen(true);
+    setCreatedCredentials(null);
+    resetCreateUser({ role: "EMPLOYEE" });
+    try {
+      const data = await teamsApi.list();
+      setCreateUserTeams(data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load teams");
+    }
+  };
+
+  const toggleCreateUserTeam = (teamId: number) => {
+    const current = watchedCreateUserTeamIds || [];
+    if (current.includes(teamId)) {
+      setValueCreateUser(
+        "teamIds",
+        current.filter((id: number) => id !== teamId)
+      );
+    } else {
+      setValueCreateUser("teamIds", [...current, teamId]);
+    }
+  };
+
+  const handleCreateUserSubmit = async (data: CreateUserFormData) => {
+    if (data.password !== data.confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    try {
+      const created = await usersApi.create({
+        name: data.name,
+        email: data.email,
+        password: data.password,
+        role: data.role || "EMPLOYEE",
+      });
+      const teamIds = data.teamIds || [];
+      if (teamIds.length > 0) {
+        await Promise.all(
+          teamIds.map((teamId) => teamsApi.addTeamMember(teamId, created.id))
+        );
+      }
+      setCreatedCredentials({ email: data.email, password: data.password });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to create user";
+      toast.error(message);
+    }
+  };
+
+  const closeCreateUserModal = () => {
+    setIsCreateUserModalOpen(false);
+    setCreatedCredentials(null);
+    resetCreateUser();
+    void loadUsers();
+  };
+
+  const copyCreatedCredentials = () => {
+    if (!createdCredentials) return;
+    const text = `Email: ${createdCredentials.email}\nPassword: ${createdCredentials.password}`;
+    void navigator.clipboard.writeText(text).then(() => {
+      toast.success("Credentials copied to clipboard");
+    });
   };
 
   const filteredUsers = users.filter((u) => {
@@ -346,12 +438,20 @@ const UsersPage = () => {
       <div className="space-y-4">
         <PageHeader
           title="User Management"
-          description="Manage users and invitations in your organization. Invite new users, assign teams, and manage roles."
+          description="Manage users and invitations in your organization. Invite new users, create users with a password, assign teams, and manage roles."
           primaryAction={{
             label: "Invite user",
             onClick: openInviteModal,
             icon: <BiPlus className="w-4 h-4" />,
           }}
+          secondaryActions={[
+            {
+              label: "Create user",
+              onClick: openCreateUserModal,
+              icon: <BiPlus className="w-4 h-4" />,
+              variant: "outline",
+            },
+          ]}
         />
 
         <DataToolbar
@@ -460,6 +560,147 @@ const UsersPage = () => {
             type="password"
             error={errors.confirmPassword?.message}
           />
+        </ModalForm>
+
+        {/* Create User Modal */}
+        <ModalForm
+          isOpen={isCreateUserModalOpen}
+          onClose={closeCreateUserModal}
+          onSubmit={
+            createdCredentials
+              ? (e) => {
+                  e.preventDefault();
+                  closeCreateUserModal();
+                }
+              : handleSubmitCreateUser(handleCreateUserSubmit)
+          }
+          title={createdCredentials ? "User created" : "Create user"}
+          description={
+            createdCredentials
+              ? "Share these credentials with the user securely. This is the only time the password will be shown."
+              : "Create a user with a password and share the credentials with them later."
+          }
+          isLoading={!createdCredentials && isSubmittingCreateUser}
+          size="md"
+          submitVariant="primary"
+          submitLabel={createdCredentials ? "Done" : "Create user"}
+          cancelLabel={createdCredentials ? undefined : "Cancel"}
+        >
+          {createdCredentials ? (
+            <div className="space-y-4">
+              <div className="rounded-md bg-slate-50 dark:bg-slate-800/50 p-4 space-y-2 font-mono text-sm">
+                <p>
+                  <span className="text-slate-500 dark:text-slate-400">Email: </span>
+                  {createdCredentials.email}
+                </p>
+                <p>
+                  <span className="text-slate-500 dark:text-slate-400">Password: </span>
+                  {createdCredentials.password}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={copyCreatedCredentials}
+                className="inline-flex items-center gap-2 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                Copy credentials
+              </button>
+            </div>
+          ) : (
+            <>
+              <FloatingInput
+                {...registerCreateUser("name", {
+                  required: "Name is required",
+                })}
+                label="Name"
+                id="create-user-name"
+                type="text"
+                error={errorsCreateUser.name?.message}
+              />
+              <FloatingInput
+                {...registerCreateUser("email", {
+                  required: "Email is required",
+                  pattern: {
+                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                    message: "Invalid email address",
+                  },
+                })}
+                label="Email"
+                id="create-user-email"
+                type="email"
+                error={errorsCreateUser.email?.message}
+              />
+              <FloatingInput
+                {...registerCreateUser("password", {
+                  required: "Password is required",
+                  minLength: {
+                    value: 8,
+                    message: "Password must be at least 8 characters",
+                  },
+                })}
+                label="Password"
+                id="create-user-password"
+                type="password"
+                error={errorsCreateUser.password?.message}
+              />
+              <FloatingInput
+                {...registerCreateUser("confirmPassword", {
+                  required: "Please confirm the password",
+                })}
+                label="Confirm Password"
+                id="create-user-confirm-password"
+                type="password"
+                error={errorsCreateUser.confirmPassword?.message}
+              />
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Role <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...registerCreateUser("role", { required: "Role is required" })}
+                  className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="EMPLOYEE">Employee</option>
+                  <option value="TEAM_MANAGER">Team Manager</option>
+                  <option value="VIEWER">Viewer</option>
+                </select>
+                {errorsCreateUser.role && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                    {errorsCreateUser.role.message}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Teams (optional)
+                </label>
+                {createUserTeams.length === 0 ? (
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    No teams available. Create teams first from the Teams page.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-300 dark:border-slate-700 rounded-md p-2">
+                    {createUserTeams.map((team) => (
+                      <label
+                        key={team.id}
+                        className="flex items-center space-x-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 p-2 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={watchedCreateUserTeamIds.includes(team.id)}
+                          onChange={() => toggleCreateUserTeam(team.id)}
+                          className="rounded border-slate-300 text-primary focus:ring-primary"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                          {team.name}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </ModalForm>
 
         {/* Manage Teams Modal */}

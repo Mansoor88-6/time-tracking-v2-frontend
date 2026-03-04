@@ -73,6 +73,43 @@ const refreshToken = async (): Promise<boolean> => {
   return refreshPromise;
 };
 
+const getAuthHeaders = (): Record<string, string> => {
+  const state = store.getState();
+  let accessToken = state.auth.accessToken;
+  if (!accessToken) {
+    accessToken = getAccessTokenCookie();
+  }
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+};
+
+/** Authenticated fetch that returns the raw Response (e.g. for blob download). Handles 401 refresh. */
+export const fetchWithAuth = async (
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> => {
+  const makeRequest = async (): Promise<Response> => {
+    return fetch(`${BASE_URL}${url}`, {
+      ...options,
+      credentials: "include",
+      headers: {
+        ...getAuthHeaders(),
+        ...(options.headers || {}),
+      },
+    });
+  };
+
+  let response = await makeRequest();
+  if (response.status === 401) {
+    const refreshSuccess = await refreshToken();
+    if (refreshSuccess) {
+      response = await makeRequest();
+    } else {
+      throw new Error("Authentication failed. Please login again.");
+    }
+  }
+  return response;
+};
+
 export const apiClient = async <T>(
   url: string,
   options: RequestInit = {}
@@ -85,11 +122,12 @@ export const apiClient = async <T>(
       accessToken = getAccessTokenCookie();
     }
 
+    const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
     return fetch(`${BASE_URL}${url}`, {
       ...options,
       credentials: "include", // Include cookies (for httpOnly refresh token)
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...(options.headers || {}),
       },
@@ -129,7 +167,7 @@ export const apiClient = async <T>(
 
   // 204 No Content (e.g. DELETE) - no body, do not parse JSON
   if (response.status === 204) {
-    return undefined as Promise<T>;
+    return undefined as unknown as Promise<T>;
   }
 
   return response.json() as Promise<T>;

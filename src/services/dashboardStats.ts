@@ -72,23 +72,27 @@ export function formatTimeWithSuffix(date: Date | string | null): {
 }
 
 /**
- * Fetch dashboard stats from the backend
+ * Fetch dashboard stats from the backend.
+ * viewAsUserId: when set (admin only), returns that user's stats.
  */
 export async function fetchDashboardStats(
   date?: string,
   timezone?: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  viewAsUserId?: number
 ): Promise<DashboardStatsResponse> {
   const params = new URLSearchParams();
   if (date) params.append("date", date);
   if (startDate) params.append("startDate", startDate);
   if (endDate) params.append("endDate", endDate);
   if (timezone) params.append("tz", timezone);
-  
+  if (viewAsUserId !== undefined && viewAsUserId !== null)
+    params.append("userId", String(viewAsUserId));
+
   const queryString = params.toString();
   const url = `/api/v1/dashboard/stats${queryString ? `?${queryString}` : ""}`;
-  
+
   return apiClient<DashboardStatsResponse>(url);
 }
 

@@ -21,6 +21,7 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
     UserRole.EMPLOYEE,
     UserRole.VIEWER,
   ],
+  "/dashboard/user-view": [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
   "/teams": [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN, UserRole.TEAM_MANAGER],
   "/projects": [
     UserRole.SUPER_ADMIN,

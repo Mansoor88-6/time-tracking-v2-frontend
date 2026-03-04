@@ -337,6 +337,24 @@ const data: SidebarData = {
           ],
         },
         {
+          name: "User's View",
+          url: "/dashboard/user-view",
+          icon: "User",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
+        },
+        {
+          name: "Download Agent",
+          url: "/agent-download",
+          icon: "PackageOpen",
+          requiredRoles: [
+            UserRole.SUPER_ADMIN,
+            UserRole.ORG_ADMIN,
+            UserRole.TEAM_MANAGER,
+            UserRole.EMPLOYEE,
+            UserRole.VIEWER,
+          ],
+        },
+        {
           name: "User Management",
           url: "/users",
           icon: "UserPlus",
@@ -412,6 +430,18 @@ const data: SidebarData = {
               icon: "List",
             },
           ],
+        },
+      ],
+    },
+    {
+      heading: "Platform",
+      showHeading: true,
+      items: [
+        {
+          name: "Tenant Management",
+          url: "/superadmin",
+          icon: "Store",
+          requiredRoles: [UserRole.SUPER_ADMIN],
         },
       ],
     },

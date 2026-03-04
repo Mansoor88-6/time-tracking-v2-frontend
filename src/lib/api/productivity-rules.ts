@@ -55,10 +55,9 @@ export interface BulkCreateRulesDto {
 }
 
 export interface ClassifyUnclassifiedDto {
-  appName: string;
-  appType: AppType;
+  unclassifiedId: number;
+  collectionId: number;
   category: AppCategory;
-  applyToTeamId?: number;
 }
 
 export const productivityRulesApi = {
@@ -111,13 +110,13 @@ export const productivityRulesApi = {
 
   classifyUnclassified: async (
     data: ClassifyUnclassifiedDto
-  ): Promise<{ rule: TeamProductivityRule; unclassified: UnclassifiedApp }> => {
-    return apiClient<{ rule: TeamProductivityRule; unclassified: UnclassifiedApp }>(
-      "/productivity-rules/unclassified/classify",
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      }
-    );
+  ): Promise<{ rules: TeamProductivityRule[]; unclassified: UnclassifiedApp }> => {
+    return apiClient<{
+      rules: TeamProductivityRule[];
+      unclassified: UnclassifiedApp;
+    }>("/productivity-rules/unclassified/classify", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   },
 };

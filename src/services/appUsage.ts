@@ -41,16 +41,18 @@ export interface AppUsageStatsParams {
   timezone?: string;
   startDate?: string;
   endDate?: string;
+  viewAsUserId?: number;
 }
 
 /**
- * Fetch app usage stats from the backend
+ * Fetch app usage stats from the backend.
  * Use date for a single day, or startDate+endDate for a range (same as dashboard stats).
+ * viewAsUserId: when set (admin only), returns that user's app usage.
  */
 export async function fetchAppUsageStats(
   params: AppUsageStatsParams
 ): Promise<AppUsageStatsResponse> {
-  const { date, timezone, startDate, endDate } = params;
+  const { date, timezone, startDate, endDate, viewAsUserId } = params;
   const searchParams = new URLSearchParams();
   const useRange = !!startDate && !!endDate;
   if (useRange) {
@@ -60,6 +62,8 @@ export async function fetchAppUsageStats(
     searchParams.append("date", date);
   }
   if (timezone) searchParams.append("tz", timezone);
+  if (viewAsUserId !== undefined && viewAsUserId !== null)
+    searchParams.append("userId", String(viewAsUserId));
 
   const queryString = searchParams.toString();
   const url = `/api/v1/dashboard/app-usage${queryString ? `?${queryString}` : ""}`;
@@ -70,7 +74,8 @@ export async function fetchAppUsageStats(
 /**
  * React hook to fetch app usage stats aligned with dashboard filters
  * Pass the same date/range as dashboard stats (date for day, startDate+endDate for week/month).
- * Auto-refreshes every 30 seconds
+ * Auto-refreshes every 30 seconds.
+ * viewAsUserId: when set (admin only), returns that user's app usage.
  */
 export function useAppUsageStats(params: AppUsageStatsParams) {
   const today = new Date().toISOString().split("T")[0];
@@ -79,17 +84,19 @@ export function useAppUsageStats(params: AppUsageStatsParams) {
     timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
     startDate,
     endDate,
+    viewAsUserId,
   } = params;
   const useRange = !!startDate && !!endDate;
 
   return useQuery<AppUsageStatsResponse, Error>({
-    queryKey: ["appUsageStats", date, startDate, endDate, timezone],
+    queryKey: ["appUsageStats", date, startDate, endDate, timezone, viewAsUserId],
     queryFn: () =>
       fetchAppUsageStats({
         date: useRange ? undefined : date,
         timezone,
         startDate,
         endDate,
+        viewAsUserId,
       }),
     refetchInterval: 30000,
     staleTime: 20000,
