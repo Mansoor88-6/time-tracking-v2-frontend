@@ -5,11 +5,16 @@ import { useDispatch } from "react-redux";
 import { useGetMeQuery } from "@/redux/services/authApi";
 import { setUser } from "@/redux/features/auth/authSlice";
 import { setPermissions } from "@/redux/features/rbac/rbacSlice";
+import { useAppSelector } from "@/redux/hooks";
 import type { User } from "@/types/auth/auth";
 
 export const useAuth = () => {
   const dispatch = useDispatch();
-  const { data, error, isLoading } = useGetMeQuery();
+  const { accessToken } = useAppSelector((state) => state.auth);
+  // Skip the /auth/me query when no token exists — prevents caching a 401 that poisons later calls
+  const { data, error, isLoading } = useGetMeQuery(undefined, {
+    skip: !accessToken,
+  });
 
   useEffect(() => {
     if (data) {

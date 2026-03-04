@@ -28,9 +28,8 @@ export const AuthGuard = ({
   const { hasAnyRole } = useRoleAccess();
 
   useEffect(() => {
-    // If we have no token and not authenticated, redirect to login
+    // No token at all → send to login
     if (!accessToken && !isAuthenticated) {
-      // Decide which login to use based on path / requirement
       if (requireSuperAdmin || pathname.startsWith("/superadmin")) {
         router.replace("/superadmin/login");
       } else {
@@ -39,7 +38,14 @@ export const AuthGuard = ({
       return;
     }
 
-    // If auth query failed (401), redirect to login
+    // Token exists but user hasn't loaded yet — don't make ANY redirect decisions.
+    // The render section shows a loading spinner; once user loads this effect re-runs.
+    if (accessToken && !user) return;
+
+    // While /auth/me is in-flight, wait
+    if (isLoadingAuth) return;
+
+    // If auth query failed (401), token is invalid — send to login
     if (authError && "status" in authError && authError.status === 401) {
       if (requireSuperAdmin || pathname.startsWith("/superadmin")) {
         router.replace("/superadmin/login");
@@ -49,22 +55,26 @@ export const AuthGuard = ({
       return;
     }
 
-    // Check super admin requirement
-    if (requireSuperAdmin && user?.role !== "SUPER_ADMIN") {
+    // Super Admin bypasses all tenant-level route guards
+    if (user?.role === "SUPER_ADMIN" || user?.type === "superadmin") {
+      return;
+    }
+
+    // Non-super-admin on a super-admin-only page → redirect to dashboard
+    if (requireSuperAdmin) {
       router.replace("/dashboard");
       return;
     }
 
     // Check role-based access if requiredRoles is specified
-    if (requiredRoles && requiredRoles.length > 0) {
-      if (!hasAnyRole(requiredRoles)) {
-        router.replace("/dashboard");
-        return;
-      }
+    if (requiredRoles && requiredRoles.length > 0 && !hasAnyRole(requiredRoles)) {
+      router.replace("/dashboard");
+      return;
     }
   }, [
     isAuthenticated,
     accessToken,
+    isLoadingAuth,
     requireSuperAdmin,
     requiredRoles,
     hasAnyRole,
@@ -74,8 +84,8 @@ export const AuthGuard = ({
     authError,
   ]);
 
-  // Show loading state while checking authentication
-  if (accessToken && !user && isLoadingAuth) {
+  // Show loading state while checking authentication (token exists but user not yet loaded)
+  if (accessToken && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-sm text-slate-700 dark:text-slate-300">

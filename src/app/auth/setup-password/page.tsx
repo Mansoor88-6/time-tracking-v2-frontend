@@ -6,7 +6,8 @@ import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { apiClient } from "@/lib/apiClient";
 import { toast } from "react-toastify";
 import { useAppDispatch } from "@/redux/hooks";
-import { setUser } from "@/redux/features/auth/authSlice";
+import { setUser, setTokens } from "@/redux/features/auth/authSlice";
+import { authApi } from "@/redux/services/authApi";
 import { AuthResponse } from "@/types/auth/auth";
 import { useEffect } from "react";
 
@@ -47,9 +48,11 @@ const SetupPasswordPage = () => {
         }),
       });
 
-      // store user and tokens
+      // Store tokens first (writes to Redux + cookies), then user
+      dispatch(setTokens({ accessToken: res.accessToken, refreshToken: res.refreshToken }));
       dispatch(setUser(res.user));
-      // tokens are handled via login thunk; here we can also set them manually if desired
+      // Clear any stale RTK Query cache so /auth/me fetches fresh
+      dispatch(authApi.util.resetApiState());
       toast.success("Account created successfully");
       router.push("/dashboard");
     } catch (err) {

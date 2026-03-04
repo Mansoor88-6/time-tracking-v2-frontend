@@ -957,10 +957,20 @@ function SidebarContent({
 }: SidebarContentProps = {}): React.JSX.Element {
   const { isOpen, isMobile, isMobileOpen, setIsMobileOpen } =
     useSidebarContext();
-  const { hasAnyRole } = useRoleAccess();
+  const { hasAnyRole, isSuperAdmin } = useRoleAccess();
 
   // Filter sidebar sections and items based on user role
   const filteredSidebarSections = React.useMemo(() => {
+    // For Super Admin, only show Tenant Management in the sidebar
+    if (isSuperAdmin) {
+      return data.sidebarSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => item.url === "/superadmin"),
+        }))
+        .filter((section) => section.items.length > 0);
+    }
+
     return data.sidebarSections
       .map((section) => ({
         ...section,
@@ -974,7 +984,7 @@ function SidebarContent({
         }),
       }))
       .filter((section) => section.items.length > 0); // Remove sections with no accessible items
-  }, [hasAnyRole]);
+  }, [hasAnyRole, isSuperAdmin]);
 
   if (isMobile) {
     return (

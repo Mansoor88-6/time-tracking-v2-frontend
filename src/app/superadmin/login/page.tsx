@@ -3,6 +3,7 @@
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { CustomLink } from "@/components/ui/Link/Link";
 import { loginUser } from "@/redux/features/auth/authThunks";
+import { authApi } from "@/redux/services/authApi";
 import { AppDispatch } from "@/redux/store";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -35,6 +36,7 @@ const SuperAdminLoginPage = () => {
           userType: "superadmin",
         })
       ).unwrap();
+      dispatch(authApi.util.resetApiState());
       router.push("/superadmin");
     } catch (error) {
       console.error("Super-admin login failed:", error);

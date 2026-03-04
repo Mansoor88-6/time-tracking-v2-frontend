@@ -3,15 +3,14 @@ import { Checkbox } from "@/components/ui/Input/Checkbox";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
 import { CustomLink } from "@/components/ui/Link/Link";
 import { loginUser } from "@/redux/features/auth/authThunks";
+import { authApi } from "@/redux/services/authApi";
 import { AppDispatch } from "@/redux/store";
 import { useRouter } from "next/navigation";
 import React from "react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { useDispatch } from "react-redux";
 import { toast } from "react-toastify";
-import dynamic from "next/dynamic";
 import { AiOutlineLoading } from "react-icons/ai";
-import SocialLogin from "@/components/auth/SocialLogin";
 
 // Define the type for your form inputs
 type LoginFormInputs = {
@@ -39,7 +38,9 @@ const Signin = () => {
           userType: "user",
         })
       ).unwrap();
-      router.push("/dashboard"); // Redirect to org dashboard after successful login
+      // Clear stale RTK Query cache (e.g. cached 401 from /auth/me) so it refetches with new token
+      dispatch(authApi.util.resetApiState());
+      router.push("/dashboard");
     } catch (error) {
       console.error("Login failed:", error);
       toast.error(String(error)); // Show error toast if login fails
@@ -121,7 +122,6 @@ const Signin = () => {
           </CustomLink>
         </p>
       </div>
-      <SocialLogin />
     </>
   );
 };

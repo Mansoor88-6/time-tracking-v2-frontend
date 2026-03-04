@@ -236,7 +236,9 @@ const UserViewPage = () => {
       try {
         setUsersLoading(true);
         const data = await usersApi.list();
-        setUsers(data);
+        // Exclude organization admins from this list so tenant admins
+        // don't appear in per-user stats views.
+        setUsers(data.filter((u) => u.role !== "ORG_ADMIN"));
       } catch {
         setUsers([]);
       } finally {

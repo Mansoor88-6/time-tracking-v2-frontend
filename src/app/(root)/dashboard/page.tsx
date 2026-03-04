@@ -16,6 +16,8 @@ import {
 } from "@/services/dashboardStats";
 import { usersApi, User } from "@/lib/api/users";
 import { teamsApi, Team } from "@/lib/api/teams";
+import { ruleCollectionsApi } from "@/lib/api/rule-collections";
+import { GettingStartedCard } from "@/components/admin/GettingStartedCard";
 // Using string literals for role comparison since UserRole has a naming conflict
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
 import { BiFilter, BiX, BiCalendar, BiUser, BiGroup, BiChevronDown } from "react-icons/bi";
@@ -322,6 +324,7 @@ const OrgDashboardPage = () => {
   const [errorOrg, setErrorOrg] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [collectionCount, setCollectionCount] = useState(0);
   
   // Filters for organization dashboard (legacy - will be replaced by period/date)
   const [filterUserIds, setFilterUserIds] = useState<number[]>([]);
@@ -368,12 +371,14 @@ const OrgDashboardPage = () => {
     if (isOrgAdmin) {
       const loadData = async () => {
         try {
-          const [usersData, teamsData] = await Promise.all([
+          const [usersData, teamsData, collectionsData] = await Promise.all([
             usersApi.list(),
             teamsApi.list(),
+            ruleCollectionsApi.list(),
           ]);
-          setAllUsers(usersData);
+          setAllUsers(usersData.filter((u) => u.role !== "ORG_ADMIN"));
           setAllTeams(teamsData);
+          setCollectionCount(collectionsData.length);
         } catch (err) {
           console.error("Failed to load users/teams:", err);
         }
@@ -754,6 +759,13 @@ const OrgDashboardPage = () => {
               </p>
             </div>
           )}
+
+          {/* Getting Started Checklist */}
+          <GettingStartedCard
+            teamCount={allTeams.length}
+            userCount={allUsers.length}
+            collectionCount={collectionCount}
+          />
 
           {/* Aggregated Stat Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
