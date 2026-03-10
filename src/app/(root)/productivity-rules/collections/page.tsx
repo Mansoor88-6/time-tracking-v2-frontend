@@ -41,7 +41,7 @@ const EMPTY_COLLECTION_RULES: TeamProductivityRule[] = [];
 interface CollectionFormData {
   name: string;
   description?: string;
-  teamIds: string[];
+  teamIds: string[] | string;
 }
 
 interface SelectedRule {
@@ -176,6 +176,18 @@ const CollectionsPage = () => {
       return;
     }
 
+  const rawTeamIds = data.teamIds;
+  const teamIdsArray = Array.isArray(rawTeamIds)
+    ? rawTeamIds
+    : rawTeamIds
+    ? [rawTeamIds]
+    : [];
+
+  if (teamIdsArray.length === 0) {
+    toast.error("Please select at least one team");
+    return;
+  }
+
     try {
       // Remove frontend-only properties (tempId, suggestedCategory) from rules before sending to backend
       const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
@@ -183,7 +195,7 @@ const CollectionsPage = () => {
       await createCollection({
         name: data.name,
         description: data.description,
-        teamIds: data.teamIds.map((id) => parseInt(id)),
+      teamIds: teamIdsArray.map((id) => parseInt(id, 10)),
         rules: rulesToSend,
       }).unwrap();
       toast.success("Collection created successfully");
@@ -198,6 +210,14 @@ const CollectionsPage = () => {
   const handleEdit = async (data: CollectionFormData) => {
     if (!selectedCollection) return;
     const collectionId = selectedCollection.id;
+
+  const rawTeamIds = data.teamIds;
+  const teamIdsArray = Array.isArray(rawTeamIds)
+    ? rawTeamIds
+    : rawTeamIds
+    ? [rawTeamIds]
+    : [];
+
     try {
       const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
 
@@ -206,7 +226,7 @@ const CollectionsPage = () => {
         data: {
           name: data.name,
           description: data.description,
-          teamIds: data.teamIds.map((id) => parseInt(id, 10)),
+        teamIds: teamIdsArray.map((id) => parseInt(id, 10)),
           rules: rulesToSend,
         },
       }).unwrap();

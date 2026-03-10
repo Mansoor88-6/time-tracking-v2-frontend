@@ -51,6 +51,7 @@ import {
 } from "../ui/DropdownMenu/DropdownMenu";
 import { useRoleAccess } from "@/hooks/useRoleAccess";
 import { UserRole, type Role } from "@/types/auth/auth";
+import { useAppSelector } from "@/redux/hooks";
 
 // TypeScript Type Definitions
 type IconComponent = React.ComponentType<{ className?: string }>;
@@ -887,9 +888,21 @@ function NavUser({ forceExpanded = false }: NavUserProps): React.JSX.Element {
   const router = useRouter();
   const shouldShowExpanded = forceExpanded || isOpen;
 
+  const authUser = useAppSelector((state) => state.auth.user);
+  const displayName =
+    authUser?.name || authUser?.email?.split("@")[0] || data.user.name;
+  const displayEmail = authUser?.email || data.user.email;
+  const initials =
+    displayName
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part[0]?.toUpperCase())
+      .join("")
+      .slice(0, 2) || "U";
+
   return (
     <DropdownMenu>
-      <Tooltip content={data.user.name} show={!shouldShowExpanded}>
+      <Tooltip content={displayName} show={!shouldShowExpanded}>
         <DropdownMenuTrigger
           className={`flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
             !shouldShowExpanded ? "justify-center" : ""
@@ -902,10 +915,10 @@ function NavUser({ forceExpanded = false }: NavUserProps): React.JSX.Element {
             <>
               <div className="flex-1 min-w-0">
                 <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {data.user.name}
+                  {displayName}
                 </div>
                 <div className="truncate text-xs text-slate-500">
-                  {data.user.email}
+                  {displayEmail}
                 </div>
               </div>
               <MdExpandMore className="h-4 w-4 text-slate-500" />
@@ -917,14 +930,14 @@ function NavUser({ forceExpanded = false }: NavUserProps): React.JSX.Element {
       <DropdownMenuContent align="end" className="w-64 max-w-[90vw]">
         <DropdownMenuLabel className="flex items-center space-x-3 p-3">
           <div className="w-12 h-12 bg-slate-300 dark:bg-slate-500 text-slate-800 dark:text-slate-100 rounded-full flex items-center justify-center text-primary-foreground text-lg font-medium">
-            {data.user.name.charAt(0).toUpperCase()}
+            {initials}
           </div>
           <div>
             <p className="font-medium text-slate-900 dark:text-slate-50">
-              {data.user.name}
+              {displayName}
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-300">
-              {data.user.email}
+              {displayEmail}
             </p>
           </div>
         </DropdownMenuLabel>
