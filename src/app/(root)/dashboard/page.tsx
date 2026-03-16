@@ -5,7 +5,9 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { useAppSelector } from "@/redux/hooks";
 import { StatCard } from "@/components/ui/StatCard/StatCard";
 import { AppUsageSection, AppUsageItem } from "@/components/ui/AppUsageSection";
-import type { TimeSlotData } from "@/components/ui/ProductivityTimeline";
+import { ProductivityTimeline } from "@/components/ui/ProductivityTimeline";
+import { fetchTimelineSlots } from "@/services/timeline";
+import { useQuery } from "@tanstack/react-query";
 import {
   fetchDashboardStats,
   fetchOrganizationDashboardStats,
@@ -352,6 +354,31 @@ const OrgDashboardPage = () => {
     setCustomStartDate(startDate);
     setCustomEndDate(endDate);
   };
+
+  const useRange = !!dateRange.startDate && !!dateRange.endDate;
+
+  const {
+    data: timelineSlots,
+    isLoading: isTimelineLoading,
+    isError: isTimelineError,
+  } = useQuery({
+    queryKey: [
+      "timeline",
+      useRange ? undefined : dateRange.date,
+      dateRange.startDate,
+      dateRange.endDate,
+      timezone,
+    ],
+    queryFn: () =>
+      fetchTimelineSlots({
+        date: useRange ? undefined : dateRange.date,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        timezone,
+      }),
+    refetchInterval: useRange ? false : 30000,
+    staleTime: 20000,
+  });
 
   // Fetch app usage stats (aligned with dashboard filters: same date or date range)
   const {
@@ -884,10 +911,9 @@ const OrgDashboardPage = () => {
         </div>
 
         {/* Productivity Timeline */}
-        {/* <ProductivityTimeline
-          data={timelineData}
-          onAddOfflineTime={handleAddOfflineTime}
-        /> */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+          <ProductivityTimeline slots={timelineSlots ?? []} />
+        </div>
 
         {/* App Usage Sections */}
         <div className="space-y-4">
