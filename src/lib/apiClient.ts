@@ -7,7 +7,7 @@ import {
   setTokens as setTokensCookie,
 } from "@/lib/cookies";
 
-const BASE_URL = "http://localhost:4000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 // Flag to prevent multiple simultaneous refresh attempts
 let isRefreshing = false;

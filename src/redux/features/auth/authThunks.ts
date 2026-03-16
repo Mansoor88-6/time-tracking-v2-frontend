@@ -5,7 +5,7 @@ import { resetState } from "../reset";
 import { clearTokens, getAccessToken } from "@/lib/cookies";
 import type { RootState } from "@/redux/store";
 
-const BASE_URL = "http://localhost:4000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 // Login Thunk
 export const loginUser = createAsyncThunk(
