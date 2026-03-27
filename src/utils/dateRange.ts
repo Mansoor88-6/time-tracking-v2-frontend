@@ -140,11 +140,41 @@ export function getDateRangeForPeriod(
 }
 
 /**
- * Format date to YYYY-MM-DD for API
+ * Format date to YYYY-MM-DD for API (local calendar day)
  */
-function formatDateForAPI(date: Date): string {
+export function formatDateForAPI(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Today's date as YYYY-MM-DD in the user's local timezone.
+ */
+export function getTodayLocalDateString(): string {
+  return formatDateForAPI(new Date());
+}
+
+/**
+ * Left time is only meaningful for a single completed calendar day (not "today").
+ * Hide for week/month views, multi-day custom ranges, and whenever the selected day is today.
+ */
+export function shouldShowLeftTime(
+  period: Period,
+  opts: {
+    currentDate: Date;
+    customStartDate?: string;
+    customEndDate?: string;
+  }
+): boolean {
+  if (period !== 'day') return false;
+  const today = getTodayLocalDateString();
+
+  if (opts.customStartDate && opts.customEndDate) {
+    if (opts.customStartDate !== opts.customEndDate) return false;
+    return opts.customStartDate < today;
+  }
+
+  return formatDateForAPI(opts.currentDate) < today;
 }

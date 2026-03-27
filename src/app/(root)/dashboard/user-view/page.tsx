@@ -24,6 +24,7 @@ import { DateRangePicker } from "@/components/ui/DateRangePicker/DateRangePicker
 import {
   Period,
   getDateRangeForPeriod,
+  shouldShowLeftTime,
 } from "@/utils/dateRange";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { BiUser, BiChevronDown } from "react-icons/bi";
@@ -47,7 +48,8 @@ type DashboardStat = {
 
 function mapStatsToCards(
   stats: DashboardStatsResponse | null,
-  period: Period = "day"
+  period: Period = "day",
+  showLeftTimeValue: boolean
 ): DashboardStat[] {
   const getSubtitle = (defaultSubtitle: string) => {
     if (period === "week") return "THIS WEEK";
@@ -60,8 +62,6 @@ function mapStatsToCards(
       { label: "Arrival Time", value: "--:--", subtitle: getSubtitle("TODAY") },
       { label: "Left Time", value: "--:--", subtitle: getSubtitle("TODAY") },
       { label: "Productive Time", value: "0m", subtitle: getSubtitle("TODAY") },
-      { label: "Desktime Time", value: "0m", subtitle: getSubtitle("TODAY") },
-      { label: "Time at work", value: "0m", subtitle: getSubtitle("TODAY") },
       {
         label: "Productivity Score",
         value: "0%",
@@ -85,6 +85,20 @@ function mapStatsToCards(
     ? null
     : formatTimeWithSuffix(stats.leftTime);
 
+  const leftTimeCard: DashboardStat = showLeftTimeValue
+    ? {
+        label: "Left Time",
+        value: leftTimeFormatted?.time ?? "--:--",
+        valueSuffix: leftTimeFormatted?.suffix,
+        subtitle: getSubtitle("TODAY"),
+        helperText: stats.isOnline ? "Online" : undefined,
+      }
+    : {
+        label: "Left Time",
+        value: "--:--",
+        subtitle: getSubtitle("TODAY"),
+      };
+
   return [
     {
       label: "Arrival Time",
@@ -92,26 +106,10 @@ function mapStatsToCards(
       valueSuffix: arrivalTimeFormatted?.suffix,
       subtitle: getSubtitle("TODAY"),
     },
-    {
-      label: "Left Time",
-      value: leftTimeFormatted?.time ?? "--:--",
-      valueSuffix: leftTimeFormatted?.suffix,
-      subtitle: getSubtitle("TODAY"),
-      helperText: stats.isOnline ? "Online" : undefined,
-    },
+    leftTimeCard,
     {
       label: "Productive Time",
       value: formatDuration(stats.productiveTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-    {
-      label: "Desktime Time",
-      value: formatDuration(stats.deskTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-    {
-      label: "Time at work",
-      value: formatDuration(stats.timeAtWorkMs),
       subtitle: getSubtitle("TODAY"),
     },
     {
@@ -226,6 +224,16 @@ const UserViewPage = () => {
     return getDateRangeForPeriod(currentDate, period);
   }, [customStartDate, customEndDate, currentDate, period]);
 
+  const showLeftTimeValue = useMemo(
+    () =>
+      shouldShowLeftTime(period, {
+        currentDate,
+        customStartDate,
+        customEndDate,
+      }),
+    [period, currentDate, customStartDate, customEndDate]
+  );
+
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) ?? null,
     [users, selectedUserId]
@@ -309,7 +317,7 @@ const UserViewPage = () => {
     viewAsUserId: selectedUserId ?? undefined,
   });
 
-  const dashboardStats = mapStatsToCards(stats, period);
+  const dashboardStats = mapStatsToCards(stats, period, showLeftTimeValue);
   const appUsage = transformAppUsage(appUsageData);
 
   return (
@@ -359,10 +367,10 @@ const UserViewPage = () => {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex flex-wrap items-center justify-between gap-4 w-full">
+              <div className="flex items-center gap-3 flex-wrap min-w-0">
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-sm">
-                  <BiUser className="w-4 h-4" />
+                  <BiUser className="w-4 h-4 shrink-0" />
                   <span>
                     Viewing as: {selectedUser?.name ?? selectedUser?.email ?? `User #${selectedUserId}`}
                   </span>
@@ -370,12 +378,12 @@ const UserViewPage = () => {
                 <button
                   type="button"
                   onClick={() => setSelectedUserId(null)}
-                  className="text-sm text-primary hover:underline"
+                  className="text-sm text-primary hover:underline shrink-0"
                 >
                   Change user
                 </button>
               </div>
-              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 justify-end ml-auto">
                 <PeriodSelector
                   period={period}
                   onPeriodChange={setPeriod}
@@ -398,9 +406,9 @@ const UserViewPage = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {statsLoading ? (
-                Array.from({ length: 8 }).map((_, i) => (
+                Array.from({ length: 6 }).map((_, i) => (
                   <div
                     key={i}
                     className="flex items-center p-6 rounded-2xl bg-stat card-shadow-lg animate-pulse"

@@ -22,7 +22,7 @@ import { ruleCollectionsApi } from "@/lib/api/rule-collections";
 import { GettingStartedCard } from "@/components/admin/GettingStartedCard";
 // Using string literals for role comparison since UserRole has a naming conflict
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
-import { BiFilter, BiX, BiCalendar, BiUser, BiGroup, BiChevronDown } from "react-icons/bi";
+import { BiX, BiUser, BiGroup, BiChevronDown } from "react-icons/bi";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -41,7 +41,7 @@ import { DateRangePicker } from "@/components/ui/DateRangePicker/DateRangePicker
 import {
   Period,
   getDateRangeForPeriod,
-  formatPeriodDate,
+  shouldShowLeftTime,
 } from "@/utils/dateRange";
 import { getColorClassesUtil } from "@/theme/utils";
 
@@ -55,21 +55,19 @@ type DashboardStat = {
   progressColor?: "teal" | "coral" | "yellow" | "navy" | "pink";
 };
 
-/**
- * Convert dashboard stats response to stat card format
- */
+/** Desk time / time at work hidden for demo. Left Time card always shown; filled value only for completed past days. */
 function mapStatsToCards(
   stats: DashboardStatsResponse | null,
-  period: Period = 'day'
+  period: Period = "day",
+  showLeftTimeValue: boolean
 ): DashboardStat[] {
   const getSubtitle = (defaultSubtitle: string) => {
-    if (period === 'week') return 'THIS WEEK';
-    if (period === 'month') return 'THIS MONTH';
+    if (period === "week") return "THIS WEEK";
+    if (period === "month") return "THIS MONTH";
     return defaultSubtitle;
   };
 
   if (!stats) {
-    // Return empty/default stats while loading
     return [
       {
         label: "Arrival Time",
@@ -83,16 +81,6 @@ function mapStatsToCards(
       },
       {
         label: "Productive Time",
-        value: "0m",
-        subtitle: getSubtitle("TODAY"),
-      },
-      {
-        label: "Desktime Time",
-        value: "0m",
-        subtitle: getSubtitle("TODAY"),
-      },
-      {
-        label: "Time at work",
         value: "0m",
         subtitle: getSubtitle("TODAY"),
       },
@@ -118,13 +106,23 @@ function mapStatsToCards(
     ];
   }
 
-  // Format arrival time
   const arrivalTimeFormatted = formatTimeWithSuffix(stats.arrivalTime);
-  
-  // Format left time (null if online)
-  const leftTimeFormatted = stats.isOnline
-    ? null
-    : formatTimeWithSuffix(stats.leftTime);
+  const leftTimeFormatted =
+    stats.isOnline ? null : formatTimeWithSuffix(stats.leftTime);
+
+  const leftTimeCard: DashboardStat = showLeftTimeValue
+    ? {
+        label: "Left Time",
+        value: leftTimeFormatted?.time ?? "--:--",
+        valueSuffix: leftTimeFormatted?.suffix,
+        subtitle: getSubtitle("TODAY"),
+        helperText: stats.isOnline ? "Online" : undefined,
+      }
+    : {
+        label: "Left Time",
+        value: "--:--",
+        subtitle: getSubtitle("TODAY"),
+      };
 
   return [
     {
@@ -133,26 +131,10 @@ function mapStatsToCards(
       valueSuffix: arrivalTimeFormatted?.suffix,
       subtitle: getSubtitle("TODAY"),
     },
-    {
-      label: "Left Time",
-      value: leftTimeFormatted?.time ?? "--:--",
-      valueSuffix: leftTimeFormatted?.suffix,
-      subtitle: getSubtitle("TODAY"),
-      helperText: stats.isOnline ? "Online" : undefined,
-    },
+    leftTimeCard,
     {
       label: "Productive Time",
       value: formatDuration(stats.productiveTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-    {
-      label: "Desktime Time",
-      value: formatDuration(stats.deskTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-    {
-      label: "Time at work",
-      value: formatDuration(stats.timeAtWorkMs),
       subtitle: getSubtitle("TODAY"),
     },
     {
@@ -357,6 +339,16 @@ const OrgDashboardPage = () => {
 
   const useRange = !!dateRange.startDate && !!dateRange.endDate;
 
+  const showLeftTimeValue = useMemo(
+    () =>
+      shouldShowLeftTime(period, {
+        currentDate,
+        customStartDate,
+        customEndDate,
+      }),
+    [period, currentDate, customStartDate, customEndDate]
+  );
+
   const {
     data: timelineSlots,
     isLoading: isTimelineLoading,
@@ -479,7 +471,7 @@ const OrgDashboardPage = () => {
     void loadOrgStats();
   }, [isOrgAdmin, period, currentDate, customStartDate, customEndDate, filterUserIds, filterTeamIds, timezone, dateRange]);
 
-  const dashboardStats = mapStatsToCards(stats, period);
+  const dashboardStats = mapStatsToCards(stats, period, showLeftTimeValue);
   const appUsage = transformAppUsage(appUsageData);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -524,11 +516,6 @@ const OrgDashboardPage = () => {
             subtitle: `of ${aggregatedStats.totalUsers} users`,
           },
           {
-            label: "Total Desk Time",
-            value: formatDuration(aggregatedStats.totalDeskTimeMs),
-            subtitle: getPeriodSubtitle(),
-          },
-          {
             label: "Average Effectiveness",
             value: `${Math.round(aggregatedStats.averageEffectiveness)}%`,
             subtitle: getPeriodSubtitle(),
@@ -566,12 +553,6 @@ const OrgDashboardPage = () => {
         render: (row) => formatDuration(row.stats.productiveTimeMs),
       },
       {
-        key: "deskTime",
-        label: "Desk Time",
-        sortable: true,
-        render: (row) => formatDuration(row.stats.deskTimeMs),
-      },
-      {
         key: "productivityScore",
         label: "Productivity Score",
         sortable: true,
@@ -605,10 +586,9 @@ const OrgDashboardPage = () => {
     return (
       <AuthGuard>
         <div className="space-y-6">
-          {/* Header with all filters in one line */}
-          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-            {/* Period Selector and Date Navigator */}
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* Header: date controls and filters — right-aligned */}
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 w-full">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
               <PeriodSelector 
                 period={period} 
                 onPeriodChange={setPeriod}
@@ -627,8 +607,7 @@ const OrgDashboardPage = () => {
               />
             </div>
             
-            {/* User and Team Filters - Right Aligned */}
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap ml-auto">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
 
               {/* Users Filter Dropdown */}
               <DropdownMenu open={usersDropdownOpen} onOpenChange={setUsersDropdownOpen}>
@@ -797,7 +776,7 @@ const OrgDashboardPage = () => {
           {/* Aggregated Stat Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             {isLoadingOrg ? (
-              Array.from({ length: 6 }).map((_, index) => (
+              Array.from({ length: 5 }).map((_, index) => (
                 <div
                   key={index}
                   className="flex items-center p-6 rounded-2xl bg-stat stat-card-hover card-shadow-lg animate-pulse"
@@ -853,9 +832,8 @@ const OrgDashboardPage = () => {
   return (
     <AuthGuard>
       <div className="space-y-6">
-            {/* Period Selector and Date Navigator */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-4 w-full">
+              <div className="flex flex-wrap items-center gap-4 justify-end">
                 <PeriodSelector 
                   period={period} 
                   onPeriodChange={setPeriod}
@@ -875,11 +853,10 @@ const OrgDashboardPage = () => {
               </div>
             </div>
 
-        {/* Stat Cards Grid - 8 cards in 2 rows (4 per row) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        {/* Stat cards (desk time / time at work hidden; left time only on past single days) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {isLoading ? (
-            // Show loading state
-            Array.from({ length: 8 }).map((_, index) => (
+            Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={index}
                 className="flex items-center p-6 rounded-2xl bg-stat stat-card-hover card-shadow-lg animate-pulse"
