@@ -26,6 +26,7 @@ import {
   getDateRangeForPeriod,
   shouldShowLeftTime,
 } from "@/utils/dateRange";
+import { getIndividualStatTooltip } from "@/utils/dashboardStatTooltips";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { BiUser, BiChevronDown } from "react-icons/bi";
 import {
@@ -42,9 +43,20 @@ type DashboardStat = {
   subtitle?: string;
   valueSuffix?: string;
   helperText?: string;
+  infoTooltip?: string;
   progress?: number;
   progressColor?: "teal" | "coral" | "yellow" | "navy" | "pink";
 };
+
+function withIndividualTooltips(
+  cards: Omit<DashboardStat, "infoTooltip">[],
+  period: Period
+): DashboardStat[] {
+  return cards.map((s) => ({
+    ...s,
+    infoTooltip: getIndividualStatTooltip(s.label, period),
+  }));
+}
 
 function mapStatsToCards(
   stats: DashboardStatsResponse | null,
@@ -58,26 +70,29 @@ function mapStatsToCards(
   };
 
   if (!stats) {
-    return [
-      { label: "Arrival Time", value: "--:--", subtitle: getSubtitle("TODAY") },
-      { label: "Left Time", value: "--:--", subtitle: getSubtitle("TODAY") },
-      { label: "Productive Time", value: "0m", subtitle: getSubtitle("TODAY") },
-      {
-        label: "Productivity Score",
-        value: "0%",
-        subtitle: getSubtitle("THIS WEEK"),
-        progress: 0,
-        progressColor: "pink" as const,
-      },
-      {
-        label: "Effectiveness",
-        value: "0%",
-        subtitle: getSubtitle("THIS WEEK"),
-        progress: 0,
-        progressColor: "pink" as const,
-      },
-      { label: "Projects Time", value: "0m", subtitle: getSubtitle("TODAY") },
-    ];
+    return withIndividualTooltips(
+      [
+        { label: "Arrival Time", value: "--:--", subtitle: getSubtitle("TODAY") },
+        { label: "Left Time", value: "--:--", subtitle: getSubtitle("TODAY") },
+        { label: "Productive Time", value: "0m", subtitle: getSubtitle("TODAY") },
+        {
+          label: "Productivity Score",
+          value: "0%",
+          subtitle: getSubtitle("THIS WEEK"),
+          progress: 0,
+          progressColor: "pink" as const,
+        },
+        {
+          label: "Effectiveness",
+          value: "0%",
+          subtitle: getSubtitle("THIS WEEK"),
+          progress: 0,
+          progressColor: "pink" as const,
+        },
+        { label: "Projects Time", value: "0m", subtitle: getSubtitle("TODAY") },
+      ],
+      period
+    );
   }
 
   const arrivalTimeFormatted = formatTimeWithSuffix(stats.arrivalTime);
@@ -85,7 +100,7 @@ function mapStatsToCards(
     ? null
     : formatTimeWithSuffix(stats.leftTime);
 
-  const leftTimeCard: DashboardStat = showLeftTimeValue
+  const leftTimeCard: Omit<DashboardStat, "infoTooltip"> = showLeftTimeValue
     ? {
         label: "Left Time",
         value: leftTimeFormatted?.time ?? "--:--",
@@ -99,39 +114,42 @@ function mapStatsToCards(
         subtitle: getSubtitle("TODAY"),
       };
 
-  return [
-    {
-      label: "Arrival Time",
-      value: arrivalTimeFormatted?.time ?? "--:--",
-      valueSuffix: arrivalTimeFormatted?.suffix,
-      subtitle: getSubtitle("TODAY"),
-    },
-    leftTimeCard,
-    {
-      label: "Productive Time",
-      value: formatDuration(stats.productiveTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-    {
-      label: "Productivity Score",
-      value: `${stats.productivityScorePct}%`,
-      subtitle: getSubtitle("THIS WEEK"),
-      progress: stats.productivityScorePct,
-      progressColor: "pink" as const,
-    },
-    {
-      label: "Effectiveness",
-      value: `${stats.effectivenessPct}%`,
-      subtitle: getSubtitle("THIS WEEK"),
-      progress: stats.effectivenessPct,
-      progressColor: "pink" as const,
-    },
-    {
-      label: "Projects Time",
-      value: formatDuration(stats.projectsTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-  ];
+  return withIndividualTooltips(
+    [
+      {
+        label: "Arrival Time",
+        value: arrivalTimeFormatted?.time ?? "--:--",
+        valueSuffix: arrivalTimeFormatted?.suffix,
+        subtitle: getSubtitle("TODAY"),
+      },
+      leftTimeCard,
+      {
+        label: "Productive Time",
+        value: formatDuration(stats.productiveTimeMs),
+        subtitle: getSubtitle("TODAY"),
+      },
+      {
+        label: "Productivity Score",
+        value: `${stats.productivityScorePct}%`,
+        subtitle: getSubtitle("THIS WEEK"),
+        progress: stats.productivityScorePct,
+        progressColor: "pink" as const,
+      },
+      {
+        label: "Effectiveness",
+        value: `${stats.effectivenessPct}%`,
+        subtitle: getSubtitle("THIS WEEK"),
+        progress: stats.effectivenessPct,
+        progressColor: "pink" as const,
+      },
+      {
+        label: "Projects Time",
+        value: formatDuration(stats.projectsTimeMs),
+        subtitle: getSubtitle("TODAY"),
+      },
+    ],
+    period
+  );
 }
 
 function urlToDisplayLabel(url: string, maxLen = 56): string {
@@ -429,6 +447,7 @@ const UserViewPage = () => {
                     valueSuffix={stat.valueSuffix}
                     subtitle={stat.subtitle}
                     helperText={stat.helperText}
+                    infoTooltip={stat.infoTooltip}
                     progress={stat.progress}
                     progressColor={stat.progressColor}
                   />

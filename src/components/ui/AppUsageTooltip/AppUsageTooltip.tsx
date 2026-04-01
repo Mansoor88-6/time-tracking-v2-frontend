@@ -161,10 +161,8 @@ export function AppUsageTooltip({
         <div
           ref={tooltipRef}
           className={cn(
-            "fixed z-[99999] bg-white dark:bg-gray-800",
-            "border border-gray-200 dark:border-gray-700",
-            "rounded-lg shadow-xl",
-            "p-3 min-w-[200px] max-w-[350px]",
+            "fixed z-[99999] rounded-lg border border-gray-200 bg-white p-3 shadow-xl",
+            "min-w-[200px] max-w-[350px]",
             position ? "opacity-100" : "opacity-0 pointer-events-none"
           )}
           style={
@@ -189,21 +187,15 @@ export function AppUsageTooltip({
           onMouseLeave={handleMouseLeave}
         >
           {/* Header */}
-          <div className="mb-2 pb-2 border-b border-gray-200 dark:border-gray-700">
-            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              {appName}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Total: {totalTime}
-            </p>
+          <div className="mb-2 border-b border-gray-200 pb-2">
+            <p className="text-sm font-semibold text-gray-900">{appName}</p>
+            <p className="text-xs text-gray-500">Total: {totalTime}</p>
           </div>
 
           {/* Breakdown List */}
           <div className="max-h-[300px] overflow-y-auto">
             {urlBreakdown.length === 0 ? (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                No breakdown available
-              </p>
+              <p className="text-xs text-gray-500">No breakdown available</p>
             ) : (
               <ul className="space-y-1.5">
                 {urlBreakdown.map((item, index) => (
@@ -211,10 +203,10 @@ export function AppUsageTooltip({
                     key={index}
                     className="flex items-start justify-between gap-2 text-xs"
                   >
-                    <span className="flex-1 min-w-0 text-gray-700 dark:text-gray-300 truncate">
+                    <span className="min-w-0 flex-1 truncate text-gray-700">
                       {item.displayName}
                     </span>
-                    <span className="flex-shrink-0 text-gray-500 dark:text-gray-400 font-medium">
+                    <span className="flex-shrink-0 font-medium text-gray-500">
                       {formatDuration(item.productiveTimeMs)}
                     </span>
                   </li>

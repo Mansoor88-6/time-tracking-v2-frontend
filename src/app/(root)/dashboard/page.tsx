@@ -44,6 +44,10 @@ import {
   shouldShowLeftTime,
 } from "@/utils/dateRange";
 import { getColorClassesUtil } from "@/theme/utils";
+import {
+  getIndividualStatTooltip,
+  getOrgStatTooltip,
+} from "@/utils/dashboardStatTooltips";
 
 type DashboardStat = {
   label: string;
@@ -51,9 +55,20 @@ type DashboardStat = {
   subtitle?: string;
   valueSuffix?: string;
   helperText?: string;
+  infoTooltip?: string;
   progress?: number;
   progressColor?: "teal" | "coral" | "yellow" | "navy" | "pink";
 };
+
+function withIndividualTooltips(
+  cards: Omit<DashboardStat, "infoTooltip">[],
+  period: Period
+): DashboardStat[] {
+  return cards.map((s) => ({
+    ...s,
+    infoTooltip: getIndividualStatTooltip(s.label, period),
+  }));
+}
 
 /** Desk time / time at work hidden for demo. Left Time card always shown; filled value only for completed past days. */
 function mapStatsToCards(
@@ -68,49 +83,52 @@ function mapStatsToCards(
   };
 
   if (!stats) {
-    return [
-      {
-        label: "Arrival Time",
-        value: "--:--",
-        subtitle: getSubtitle("TODAY"),
-      },
-      {
-        label: "Left Time",
-        value: "--:--",
-        subtitle: getSubtitle("TODAY"),
-      },
-      {
-        label: "Productive Time",
-        value: "0m",
-        subtitle: getSubtitle("TODAY"),
-      },
-      {
-        label: "Productivity Score",
-        value: "0%",
-        subtitle: getSubtitle("THIS WEEK"),
-        progress: 0,
-        progressColor: "pink" as const,
-      },
-      {
-        label: "Effectiveness",
-        value: "0%",
-        subtitle: getSubtitle("THIS WEEK"),
-        progress: 0,
-        progressColor: "pink" as const,
-      },
-      {
-        label: "Projects Time",
-        value: "0m",
-        subtitle: getSubtitle("TODAY"),
-      },
-    ];
+    return withIndividualTooltips(
+      [
+        {
+          label: "Arrival Time",
+          value: "--:--",
+          subtitle: getSubtitle("TODAY"),
+        },
+        {
+          label: "Left Time",
+          value: "--:--",
+          subtitle: getSubtitle("TODAY"),
+        },
+        {
+          label: "Productive Time",
+          value: "0m",
+          subtitle: getSubtitle("TODAY"),
+        },
+        {
+          label: "Productivity Score",
+          value: "0%",
+          subtitle: getSubtitle("THIS WEEK"),
+          progress: 0,
+          progressColor: "pink" as const,
+        },
+        {
+          label: "Effectiveness",
+          value: "0%",
+          subtitle: getSubtitle("THIS WEEK"),
+          progress: 0,
+          progressColor: "pink" as const,
+        },
+        {
+          label: "Projects Time",
+          value: "0m",
+          subtitle: getSubtitle("TODAY"),
+        },
+      ],
+      period
+    );
   }
 
   const arrivalTimeFormatted = formatTimeWithSuffix(stats.arrivalTime);
   const leftTimeFormatted =
     stats.isOnline ? null : formatTimeWithSuffix(stats.leftTime);
 
-  const leftTimeCard: DashboardStat = showLeftTimeValue
+  const leftTimeCard: Omit<DashboardStat, "infoTooltip"> = showLeftTimeValue
     ? {
         label: "Left Time",
         value: leftTimeFormatted?.time ?? "--:--",
@@ -124,39 +142,42 @@ function mapStatsToCards(
         subtitle: getSubtitle("TODAY"),
       };
 
-  return [
-    {
-      label: "Arrival Time",
-      value: arrivalTimeFormatted?.time ?? "--:--",
-      valueSuffix: arrivalTimeFormatted?.suffix,
-      subtitle: getSubtitle("TODAY"),
-    },
-    leftTimeCard,
-    {
-      label: "Productive Time",
-      value: formatDuration(stats.productiveTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-    {
-      label: "Productivity Score",
-      value: `${stats.productivityScorePct}%`,
-      subtitle: getSubtitle("THIS WEEK"),
-      progress: stats.productivityScorePct,
-      progressColor: "pink" as const,
-    },
-    {
-      label: "Effectiveness",
-      value: `${stats.effectivenessPct}%`,
-      subtitle: getSubtitle("THIS WEEK"),
-      progress: stats.effectivenessPct,
-      progressColor: "pink" as const,
-    },
-    {
-      label: "Projects Time",
-      value: formatDuration(stats.projectsTimeMs),
-      subtitle: getSubtitle("TODAY"),
-    },
-  ];
+  return withIndividualTooltips(
+    [
+      {
+        label: "Arrival Time",
+        value: arrivalTimeFormatted?.time ?? "--:--",
+        valueSuffix: arrivalTimeFormatted?.suffix,
+        subtitle: getSubtitle("TODAY"),
+      },
+      leftTimeCard,
+      {
+        label: "Productive Time",
+        value: formatDuration(stats.productiveTimeMs),
+        subtitle: getSubtitle("TODAY"),
+      },
+      {
+        label: "Productivity Score",
+        value: `${stats.productivityScorePct}%`,
+        subtitle: getSubtitle("THIS WEEK"),
+        progress: stats.productivityScorePct,
+        progressColor: "pink" as const,
+      },
+      {
+        label: "Effectiveness",
+        value: `${stats.effectivenessPct}%`,
+        subtitle: getSubtitle("THIS WEEK"),
+        progress: stats.effectivenessPct,
+        progressColor: "pink" as const,
+      },
+      {
+        label: "Projects Time",
+        value: formatDuration(stats.projectsTimeMs),
+        subtitle: getSubtitle("TODAY"),
+      },
+    ],
+    period
+  );
 }
 
 /** Shorten URL for display: strip protocol, truncate to maxLen. Used when same domain appears in multiple categories. */
@@ -502,6 +523,7 @@ const OrgDashboardPage = () => {
             label: "Total Productive Time",
             value: formatDuration(aggregatedStats.totalProductiveTimeMs),
             subtitle: getPeriodSubtitle(),
+            infoTooltip: getOrgStatTooltip("Total Productive Time"),
           },
           {
             label: "Average Productivity Score",
@@ -509,11 +531,13 @@ const OrgDashboardPage = () => {
             subtitle: getPeriodSubtitle(),
             progress: Math.round(aggregatedStats.averageProductivityScore),
             progressColor: "pink" as const,
+            infoTooltip: getOrgStatTooltip("Average Productivity Score"),
           },
           {
             label: "Total Active Users",
             value: aggregatedStats.activeUsers,
             subtitle: `of ${aggregatedStats.totalUsers} users`,
+            infoTooltip: getOrgStatTooltip("Total Active Users"),
           },
           {
             label: "Average Effectiveness",
@@ -521,11 +545,13 @@ const OrgDashboardPage = () => {
             subtitle: getPeriodSubtitle(),
             progress: Math.round(aggregatedStats.averageEffectiveness),
             progressColor: "pink" as const,
+            infoTooltip: getOrgStatTooltip("Average Effectiveness"),
           },
           {
             label: "Total Projects Time",
             value: formatDuration(aggregatedStats.totalProjectsTimeMs),
             subtitle: getPeriodSubtitle(),
+            infoTooltip: getOrgStatTooltip("Total Projects Time"),
           },
         ]
       : [];
@@ -799,6 +825,7 @@ const OrgDashboardPage = () => {
                   valueSuffix={stat.valueSuffix}
                   subtitle={stat.subtitle}
                   helperText={stat.helperText}
+                  infoTooltip={stat.infoTooltip}
                   progress={stat.progress}
                   progressColor={stat.progressColor}
                 />
@@ -880,6 +907,7 @@ const OrgDashboardPage = () => {
                 valueSuffix={stat.valueSuffix}
                 subtitle={stat.subtitle}
                 helperText={stat.helperText}
+                infoTooltip={stat.infoTooltip}
                 progress={stat.progress}
                 progressColor={stat.progressColor}
               />

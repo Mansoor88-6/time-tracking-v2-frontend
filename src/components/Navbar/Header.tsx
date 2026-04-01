@@ -40,9 +40,6 @@ function Header() {
           <SearchDialog />
         </div>
 
-        {/* Theme Switch */}
-        <ThemeSwitch />
-
         <DropdownMenu>
           <DropdownMenuTrigger className="relative h-8 w-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
             <div className="h-8 w-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
@@ -80,7 +77,6 @@ function Header() {
 
 // Import the useSidebarContext from CustomSidebar
 import { useSidebarContext } from "../Sidebar/Sidebar";
-import ThemeSwitch from "../Theme/ThemeSwitcher";
 import { SearchBar } from "./SearchBar";
 import { SearchDialog } from "./SearchDialog";
 import {

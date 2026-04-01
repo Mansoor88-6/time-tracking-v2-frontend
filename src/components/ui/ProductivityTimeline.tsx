@@ -32,6 +32,10 @@ export interface ProductivityTimelineProps {
 const TOTAL_MINUTES = 24 * 60;
 const SLOT_MINUTES = 5;
 
+/** Pixel width per slot bar (flex-1 was overriding w-[15px] and squeezing ~288 bars to ~3px each). */
+const SLOT_BAR_WIDTH_PX = 5;
+const SLOT_BAR_GAP_PX = 2;
+
 // Colors aligned with the provided design and existing palette
 const PRODUCTIVE_COLOR = "#6BBF4E";
 const NEUTRAL_COLOR = "#D0D0D0";
@@ -106,6 +110,12 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
 
   const yTicks = ["100%", "75%", "50%", "25%", ""];
 
+  const slotCount = resolvedSlots.length;
+  const barTrackMinWidth =
+    slotCount > 0
+      ? slotCount * (SLOT_BAR_WIDTH_PX + SLOT_BAR_GAP_PX) - SLOT_BAR_GAP_PX
+      : 0;
+
   return (
     <div className="space-y-3">
       <div className="text-md font-medium text-slate-900 dark:text-slate-100">
@@ -120,7 +130,7 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       </div>
 
       <div className="overflow-x-auto">
-        <div className="flex min-w-[1100px] gap-3">
+        <div className="flex w-max min-w-[1100px] gap-3">
           {/* Y Axis */}
           <div className="flex h-32 flex-col justify-between pb-5 pr-1 text-xs text-slate-400 dark:text-slate-500">
             {yTicks.map((tick) => (
@@ -130,17 +140,20 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
             ))}
           </div>
 
-          {/* Chart area */}
-          <div className="relative flex-1 overflow-hidden">
-          <div className="absolute inset-0 rounded border border-dashed border-slate-200 dark:border-slate-700" />
+          {/* Chart area: minWidth matches bar track so flex never squeezes bars below SLOT_BAR_WIDTH_PX */}
+          <div
+            className="relative flex-1"
+            style={{ minWidth: barTrackMinWidth }}
+          >
+          <div className="pointer-events-none absolute inset-0 rounded border border-dashed border-slate-200 dark:border-slate-700" />
 
           {/* Hover tooltip (overlay, does not affect layout) */}
           {hoveredSlot && (
-            <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-xs rounded-md bg-slate-900 px-2 py-1 text-[11px] text-slate-50 shadow-sm dark:bg-slate-800">
-              <div className="font-medium">
+            <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-xs rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-900 shadow-md">
+              <div className="font-medium text-gray-900">
                 {formatSlotRange(hoveredSlot.startMinute)}
               </div>
-              <div className="mt-0.5 space-y-0.5 text-slate-300">
+              <div className="mt-0.5 space-y-0.5 text-gray-600">
                 <div>
                   Productive{" "}
                   {(hoveredSlot.productivePct * 100).toFixed(0)}% (
@@ -161,11 +174,18 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
 
           {/* Bars */}
           <div className="relative border-b border-slate-200/70 dark:border-slate-700/70">
-            <div className="flex h-32 items-end gap-[2px]">
+            <div
+              className="flex h-32 flex-nowrap items-end"
+              style={{
+                gap: SLOT_BAR_GAP_PX,
+                minWidth: barTrackMinWidth,
+              }}
+            >
               {resolvedSlots.map((slot) => (
                 <SlotBar
                   key={slot.startMinute}
                   slot={slot}
+                  barWidthPx={SLOT_BAR_WIDTH_PX}
                   onHover={setHoveredSlot}
                   onLeave={() => setHoveredSlot(null)}
                 />
@@ -174,12 +194,16 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
           </div>
 
             {/* Online band */}
-            <div className="mt-0.5 flex h-2 gap-[2px]">
+            <div
+              className="mt-0.5 flex h-2 flex-nowrap"
+              style={{ gap: SLOT_BAR_GAP_PX, minWidth: barTrackMinWidth }}
+            >
               {resolvedSlots.map((slot) => (
                 <div
                   key={slot.startMinute}
-                  className="h-2 w-[3px] flex-1 rounded-b-[2px]"
+                  className="h-2 flex-shrink-0 rounded-b-[2px]"
                   style={{
+                    width: SLOT_BAR_WIDTH_PX,
                     backgroundColor: slot.online ? ONLINE_COLOR : "transparent",
                   }}
                 />
@@ -239,13 +263,17 @@ const LegendDot: React.FC<{ color: string; label: string }> = ({
 
 const SlotBar: React.FC<{
   slot: TimeSlotData;
+  barWidthPx: number;
   onHover: (slot: TimeSlotData) => void;
   onLeave: () => void;
-}> = ({ slot, onHover, onLeave }) => {
+}> = ({ slot, barWidthPx, onHover, onLeave }) => {
+  const barStyle = { width: barWidthPx, flexShrink: 0 as const };
+
   if (!slot.online) {
     return (
       <div
-        className="h-32 w-[15px] flex-1"
+        className="h-32 flex-col"
+        style={barStyle}
         onMouseEnter={() => onHover(slot)}
         onMouseLeave={onLeave}
       />
@@ -256,13 +284,10 @@ const SlotBar: React.FC<{
   const neutralHeight = Math.round(slot.neutralPct * 100);
   const unprodHeight = Math.round(slot.unproductivePct * 100);
 
-  const prodMinutes = SLOT_MINUTES * slot.productivePct;
-  const neutralMinutes = SLOT_MINUTES * slot.neutralPct;
-  const unprodMinutes = SLOT_MINUTES * slot.unproductivePct;
-
   return (
     <div
-      className="flex h-32 w-[15px] flex-1 flex-col justify-end overflow-hidden rounded-t-[2px]"
+      className="flex h-32 flex-col justify-end overflow-hidden rounded-t-[2px]"
+      style={barStyle}
       onMouseEnter={() => onHover(slot)}
       onMouseLeave={onLeave}
     >

@@ -315,7 +315,7 @@ export function ProductivityTimeline({
         {/* Tooltip */}
         {tooltipContent && (
           <div
-            className="fixed z-50 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-xs px-3 py-2 rounded shadow-lg pointer-events-none whitespace-pre-line"
+            className="fixed z-50 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 shadow-lg pointer-events-none whitespace-pre-line"
             style={{
               left: `${tooltipPosition.x}px`,
               top: `${tooltipPosition.y - 10}px`,

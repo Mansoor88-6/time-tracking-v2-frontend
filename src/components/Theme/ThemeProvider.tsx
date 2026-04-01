@@ -11,18 +11,20 @@ interface ProvidersProps
 export function ThemeProvider({
   children,
   attribute = "class",
-  defaultTheme = "system",
-  enableSystem = true,
+  defaultTheme = "light",
+  enableSystem = false,
+  forcedTheme = "light",
   disableTransitionOnChange = true,
   ...props
 }: ProvidersProps) {
   return (
     <NextThemesProvider
+      {...props}
       attribute={attribute}
       defaultTheme={defaultTheme}
       enableSystem={enableSystem}
+      forcedTheme={forcedTheme}
       disableTransitionOnChange={disableTransitionOnChange}
-      {...props}
     >
       {children}
     </NextThemesProvider>
