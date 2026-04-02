@@ -37,6 +37,7 @@ import {
   MdLock,
   MdRule,
   MdList,
+  MdAccessTime,
 } from "react-icons/md";
 import { HiUpload, HiDocumentText } from "react-icons/hi";
 import { FaBrain, FaProjectDiagram } from "react-icons/fa";
@@ -195,6 +196,7 @@ const IconMap: Record<string, IconComponent> = {
   Workflow: FaProjectDiagram,
   Rule: MdRule,
   List: MdList,
+  Clock: MdAccessTime,
 
   // Action icons
   Edit3: MdEdit,
@@ -409,6 +411,12 @@ const data: SidebarData = {
       heading: "Administration",
       showHeading: true,
       items: [
+        {
+          name: "Offline time requests",
+          url: "/offline-time-requests",
+          icon: "Clock",
+          requiredRoles: [UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN],
+        },
         {
           name: "Productivity Rules",
           url: "/productivity-rules/collections",

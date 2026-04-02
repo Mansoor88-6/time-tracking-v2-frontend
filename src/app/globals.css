@@ -73,6 +73,24 @@ body {
   display: none;
 }
 
+/* Horizontal scrollbar ~half default thickness (e.g. productivity timeline) */
+.timeline-h-scrollbar-thin {
+  scrollbar-width: thin; /* Firefox */
+}
+.timeline-h-scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+}
+.timeline-h-scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.timeline-h-scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225); /* slate-300 */
+  border-radius: 3px;
+}
+.timeline-h-scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(148 163 184); /* slate-400 */
+}
+
 /* Custom animations */
 @keyframes gradient {
   0% {

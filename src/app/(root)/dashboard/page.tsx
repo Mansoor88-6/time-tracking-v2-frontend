@@ -7,7 +7,13 @@ import { StatCard } from "@/components/ui/StatCard/StatCard";
 import { AppUsageSection, AppUsageItem } from "@/components/ui/AppUsageSection";
 import { ProductivityTimeline } from "@/components/ui/ProductivityTimeline";
 import { fetchTimelineSlots } from "@/services/timeline";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createOfflineTimeRequest,
+  listMyOfflineTimeRequests,
+  type OfflineTimeRequestDto,
+} from "@/services/offlineTimeRequests";
+import { toast } from "react-toastify";
 import {
   fetchDashboardStats,
   fetchOrganizationDashboardStats,
@@ -256,56 +262,6 @@ function transformAppUsage(appUsage: AppUsageStatsResponse | undefined): {
   };
 }
 
-// Generate mock timeline data (24 hours, 5-minute intervals)
-// This simulates a typical workday with activity from 9 AM to 7 PM
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const generateMockTimelineData = (): TimeSlotData[] => {
-  const data: TimeSlotData[] = [];
-  
-  // Generate all 5-minute slots
-  for (let hour = 0; hour < 24; hour++) {
-    for (let minute = 0; minute < 60; minute += 5) {
-      const time = `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
-      
-      // Simulate activity during work hours (9 AM - 7 PM)
-      const isWorkHours = hour >= 9 && hour < 19;
-      
-      if (isWorkHours) {
-        // Simulate varying activity levels
-        const baseActivity = 60 + Math.random() * 40; // 60-100% activity
-        const productive = Math.floor(baseActivity * 0.7); // 70% productive
-        const unproductive = Math.floor(baseActivity * 0.15); // 15% unproductive
-        const neutral = Math.floor(baseActivity * 0.15); // 15% neutral
-        
-        // Ensure percentages don't exceed 100
-        const total = productive + unproductive + neutral;
-        const scale = Math.min(100 / total, 1);
-        
-        data.push({
-          time,
-          productive: Math.floor(productive * scale),
-          unproductive: Math.floor(unproductive * scale),
-          neutral: Math.floor(neutral * scale),
-          totalActivity: Math.min(100, Math.floor(total * scale)),
-          isTracked: true,
-        });
-      } else {
-        // No tracked time outside work hours
-        data.push({
-          time,
-          productive: 0,
-          unproductive: 0,
-          neutral: 0,
-          totalActivity: 0,
-          isTracked: false,
-        });
-      }
-    }
-  }
-  
-  return data;
-};
-
 const OrgDashboardPage = () => {
   const { user } = useAppSelector((state) => state.auth);
   const isOrgAdmin = user?.role === "ORG_ADMIN" || user?.role === "SUPER_ADMIN";
@@ -370,6 +326,21 @@ const OrgDashboardPage = () => {
     [period, currentDate, customStartDate, customEndDate]
   );
 
+  /** Timeline is a single-day chart; hide for week/month or multi-day custom range. */
+  const showProductivityTimeline = useMemo(() => {
+    if (period !== "day") return false;
+    if (
+      customStartDate &&
+      customEndDate &&
+      customStartDate !== customEndDate
+    ) {
+      return false;
+    }
+    return true;
+  }, [period, customStartDate, customEndDate]);
+
+  const queryClient = useQueryClient();
+
   const {
     data: timelineSlots,
     isLoading: isTimelineLoading,
@@ -389,8 +360,17 @@ const OrgDashboardPage = () => {
         endDate: dateRange.endDate,
         timezone,
       }),
+    enabled: showProductivityTimeline,
     refetchInterval: useRange ? false : 30000,
     staleTime: 20000,
+  });
+
+  const { data: myPendingOfflineRequests } = useQuery({
+    queryKey: ["offline-time-requests", "mine", "pending"],
+    queryFn: () => listMyOfflineTimeRequests("pending"),
+    enabled: showProductivityTimeline,
+    staleTime: 30000,
+    refetchOnWindowFocus: true,
   });
 
   // Fetch app usage stats (aligned with dashboard filters: same date or date range)
@@ -495,15 +475,39 @@ const OrgDashboardPage = () => {
   const dashboardStats = mapStatsToCards(stats, period, showLeftTimeValue);
   const appUsage = transformAppUsage(appUsageData);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleAddOfflineTime = (
-    time: string,
-    category: "productive" | "unproductive" | "neutral",
-    duration: number
-  ) => {
-    // This would typically call an API to save offline time
-    console.log(`Adding ${duration} minutes of ${category} time at ${time}`);
-    // In a real implementation, you would update the timeline data here
+  const handleOfflineTimeSubmit = async (payload: {
+    startAt: string;
+    endAt: string;
+    description: string;
+    category: "productive" | "neutral" | "unproductive";
+  }) => {
+    try {
+      const created = await createOfflineTimeRequest(payload);
+      toast.success("Offline time request submitted for admin review.");
+
+      queryClient.setQueryData<OfflineTimeRequestDto[]>(
+        ["offline-time-requests", "mine", "pending"],
+        (old) => {
+          const list = old ?? [];
+          if (list.some((r) => r.id === created.id)) {
+            return list.map((r) => (r.id === created.id ? created : r));
+          }
+          return [created, ...list];
+        }
+      );
+
+      await queryClient.invalidateQueries({ queryKey: ["timeline"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["offline-time-requests", "mine", "pending"],
+      });
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Failed to submit offline time request";
+      toast.error(msg);
+      throw err;
+    }
   };
 
   // Organization Dashboard View
@@ -915,10 +919,20 @@ const OrgDashboardPage = () => {
           )}
         </div>
 
-        {/* Productivity Timeline */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-          <ProductivityTimeline slots={timelineSlots ?? []} />
-        </div>
+        {showProductivityTimeline ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+            <ProductivityTimeline
+              slots={timelineSlots ?? []}
+              onOfflineTimeSubmit={handleOfflineTimeSubmit}
+              pendingOfflineRanges={
+                myPendingOfflineRequests?.map((r) => ({
+                  startAt: r.startAt,
+                  endAt: r.endAt,
+                })) ?? []
+              }
+            />
+          </div>
+        ) : null}
 
         {/* App Usage Sections */}
         <div className="space-y-4">

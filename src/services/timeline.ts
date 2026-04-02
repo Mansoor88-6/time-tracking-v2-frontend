@@ -3,9 +3,12 @@ import type { TimeSlotData } from "@/components/ui/ProductivityTimeline";
 
 export interface TimelineSlotResponse {
   startMinuteFromMidnight: number;
+  slotStartUtc: string;
   productivePct: number;
   neutralPct: number;
   unproductivePct: number;
+  idlePct: number;
+  idleMs: number;
   online: boolean;
 }
 
@@ -38,9 +41,12 @@ export async function fetchTimelineSlots(
 
   return raw.map((slot) => ({
     startMinute: slot.startMinuteFromMidnight,
+    slotStartUtc: slot.slotStartUtc,
     productivePct: slot.productivePct,
     neutralPct: slot.neutralPct,
     unproductivePct: slot.unproductivePct,
+    idlePct: slot.idlePct ?? 0,
+    idleMs: slot.idleMs ?? 0,
     online: slot.online,
   }));
 }
