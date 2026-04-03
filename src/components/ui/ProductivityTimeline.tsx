@@ -57,7 +57,9 @@ const PRODUCTIVE_COLOR = "#6BBF4E";
 const NEUTRAL_COLOR = "#D0D0D0";
 const UNPRODUCTIVE_COLOR = "#E07A5F";
 const ONLINE_COLOR = "#4BB8E8";
-const IDLE_COLOR = "#94A3B8";
+/** Same light fill as untracked slots — idle time is not a separate “category” color */
+const IDLE_UNTRACKED_BAR_CLASS =
+  "bg-slate-100/70 dark:bg-slate-800/60";
 /** Pending offline-time request (awaiting admin) */
 const PENDING_OFFLINE_COLOR = "#38BDF8";
 
@@ -463,7 +465,10 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
         <LegendDot color={PRODUCTIVE_COLOR} label="Productive" />
         <LegendDot color={NEUTRAL_COLOR} label="Neutral" />
         <LegendDot color={UNPRODUCTIVE_COLOR} label="Unproductive" />
-        <LegendDot color={IDLE_COLOR} label="Idle" />
+        <LegendDot
+          dotClassName={IDLE_UNTRACKED_BAR_CLASS}
+          label="Idle / untracked"
+        />
         <LegendDot color={ONLINE_COLOR} label="Online" />
         {pendingOfflineRanges.length > 0 ? (
           <LegendDot
@@ -672,14 +677,15 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
   );
 };
 
-const LegendDot: React.FC<{ color: string; label: string }> = ({
-  color,
-  label,
-}) => (
+const LegendDot: React.FC<{
+  color?: string;
+  dotClassName?: string;
+  label: string;
+}> = ({ color, dotClassName, label }) => (
   <div className="flex items-center gap-1">
     <span
-      className="h-2.5 w-2.5 rounded-[3px]"
-      style={{ backgroundColor: color }}
+      className={cn("h-2.5 w-2.5 rounded-[3px]", dotClassName)}
+      style={dotClassName ? undefined : { backgroundColor: color }}
     />
     <span>{label}</span>
   </div>
@@ -799,11 +805,11 @@ const SlotBar: React.FC<{
       )}
       {idleHeight > 0 && (
         <div
-          className="w-full flex-shrink-0"
-          style={{
-            height: `${idleHeight}%`,
-            backgroundColor: IDLE_COLOR,
-          }}
+          className={cn(
+            "w-full flex-shrink-0",
+            IDLE_UNTRACKED_BAR_CLASS
+          )}
+          style={{ height: `${idleHeight}%` }}
         />
       )}
       {pendingOverlay ? (
