@@ -13,6 +13,11 @@ import {
   type AgentInfo,
   type ExtensionInfo,
 } from "@/services/agent";
+import {
+  listPricingContactRequests,
+  markPricingContactRead,
+  type PricingContactRequestRow,
+} from "@/services/pricingContactAdmin";
 import { useEffect, useState, useMemo } from "react";
 import { toast } from "react-toastify";
 
@@ -43,6 +48,27 @@ const SuperAdminPage = () => {
   const [selectedExtensionFile, setSelectedExtensionFile] =
     useState<File | null>(null);
 
+  const [contactRequests, setContactRequests] = useState<
+    PricingContactRequestRow[]
+  >([]);
+  const [contactLoading, setContactLoading] = useState(true);
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  const loadContactRequests = async () => {
+    try {
+      setContactLoading(true);
+      const data = await listPricingContactRequests();
+      setContactRequests(data);
+      setContactError(null);
+    } catch (err) {
+      setContactError(
+        err instanceof Error ? err.message : "Failed to load contact requests"
+      );
+    } finally {
+      setContactLoading(false);
+    }
+  };
+
   const loadTenants = async () => {
     try {
       setLoading(true);
@@ -72,6 +98,7 @@ const SuperAdminPage = () => {
 
   useEffect(() => {
     void loadTenants();
+    void loadContactRequests();
   }, []);
 
   useEffect(() => {
@@ -201,6 +228,62 @@ const SuperAdminPage = () => {
     }
   };
 
+  const contactColumns: AdminTableColumn<
+    PricingContactRequestRow & { id: number }
+  >[] = [
+    {
+      key: "createdAt",
+      label: "Date",
+      sortable: true,
+      render: (row) => formatDate(row.createdAt),
+    },
+    {
+      key: "planType",
+      label: "Plan",
+      sortable: true,
+      render: (row) => (
+        <span className="capitalize">{row.planType}</span>
+      ),
+    },
+    { key: "name", label: "Name", sortable: true },
+    { key: "email", label: "Email", sortable: true },
+    {
+      key: "company",
+      label: "Company",
+      sortable: true,
+      render: (row) => row.company ?? "—",
+    },
+    {
+      key: "phone",
+      label: "Phone",
+      sortable: true,
+      render: (row) => row.phone ?? "—",
+    },
+    {
+      key: "message",
+      label: "Message",
+      sortable: false,
+      render: (row) => (
+        <span className="line-clamp-2 max-w-[240px]" title={row.message ?? ""}>
+          {row.message ?? "—"}
+        </span>
+      ),
+    },
+    {
+      key: "readAt",
+      label: "Status",
+      sortable: true,
+      render: (row) =>
+        row.readAt ? (
+          <span className="text-emerald-600 dark:text-emerald-400 text-xs">
+            Read
+          </span>
+        ) : (
+          <span className="text-amber-600 dark:text-amber-400 text-xs">New</span>
+        ),
+    },
+  ];
+
   const columns: AdminTableColumn<Tenant>[] = [
     { key: "name", label: "Name", sortable: true },
     { key: "email", label: "Email", sortable: true },
@@ -275,6 +358,56 @@ const SuperAdminPage = () => {
               {stats.suspended}
             </p>
           </div>
+        </div>
+
+        {/* Pricing / contact inquiries from marketing site */}
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
+                Pricing &amp; contact requests
+              </h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                Submissions from the public pricing page (&quot;Contact us&quot;).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadContactRequests()}
+              className="text-sm px-3 py-1.5 rounded-md border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700"
+            >
+              Refresh
+            </button>
+          </div>
+          {contactError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{contactError}</p>
+          )}
+          <AdminDataTable
+            data={contactRequests.map((r) => ({ ...r, id: r.id }))}
+            columns={contactColumns}
+            loading={contactLoading}
+            emptyMessage="No contact requests yet."
+            rowActions={(row) => (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const next = !row.readAt;
+                    await markPricingContactRead(row.id, next);
+                    toast.success(next ? "Marked as read" : "Marked as unread");
+                    await loadContactRequests();
+                  } catch (e) {
+                    toast.error(
+                      e instanceof Error ? e.message : "Update failed"
+                    );
+                  }
+                }}
+                className="text-xs px-2 py-1 rounded border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                {row.readAt ? "Mark unread" : "Mark read"}
+              </button>
+            )}
+          />
         </div>
 
         {/* Tenant table */}

@@ -1,10 +1,15 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { PricingContactModal } from "@/components/home/PricingContactModal";
+import type { PricingPlanType } from "@/services/pricingContact";
 
 export default function HomeLandingPage() {
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contactPlan, setContactPlan] = useState<PricingPlanType>("standard");
+
   useEffect(() => {
     const revealEls = document.querySelectorAll(".hl-reveal");
     const io = new IntersectionObserver(
@@ -432,31 +437,72 @@ export default function HomeLandingPage() {
         </div>
       </div>
 
-      {/* Pricing – Coming Soon */}
+      {/* Pricing */}
       <div className="hl-pricing-section" id="pricing">
-        <div className="hl-pricing-inner">
+        <div className="hl-pricing-inner-wide">
           <div className="hl-reveal">
             <span className="hl-section-badge pink">Pricing</span>
             <h2 className="hl-section-title">Simple, transparent pricing</h2>
-            <p className="hl-section-desc" style={{ margin: "0 auto 48px" }}>
-              We&apos;re putting the finishing touches on our plans. Get your organization set up now and we&apos;ll keep you posted.
+            <p className="hl-section-desc" style={{ margin: "0 auto 8px", maxWidth: 640 }}>
+              Choose the plan that fits your team. Contact us to get started — we&apos;ll confirm details and onboarding with you directly.
             </p>
-            <div className="hl-coming-soon-card">
-              <div className="hl-coming-soon-icon">🚀</div>
-              <div className="hl-coming-soon-title">Coming soon</div>
-              <div className="hl-coming-soon-desc">
-                Pricing plans will be available shortly. Register your organization today and you&apos;ll be first to know when we launch.
+            <div className="hl-pricing-grid">
+              <div className="hl-price-card featured">
+                <div className="hl-price-tier">Team</div>
+                <div className="hl-price-amount">$15 USD</div>
+                <div className="hl-price-sub">per user / month · billed according to your agreement</div>
+                <ul className="hl-price-features">
+                  <li>Desktop tracking agent (Windows) with secure device registration</li>
+                  <li>Browser extension for web activity (where you enable it)</li>
+                  <li>Live dashboards: productivity, app usage, and timeline views</li>
+                  <li>Teams, projects, and organization structure</li>
+                  <li>Productivity rules and rule collections per team</li>
+                  <li>Role-based access for admins and employees</li>
+                </ul>
+                <button
+                  type="button"
+                  className="hl-btn-primary"
+                  onClick={() => {
+                    setContactPlan("standard");
+                    setContactOpen(true);
+                  }}
+                >
+                  Contact us
+                </button>
               </div>
-              <Link href="/auth/register-tenant" className="hl-btn-hero" style={{ marginTop: 32, display: "inline-flex" }}>
-                Register your organization
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m9 18 6-6-6-6" />
-                </svg>
-              </Link>
+              <div className="hl-price-card">
+                <div className="hl-price-tier">Enterprise</div>
+                <div className="hl-price-amount">Custom</div>
+                <div className="hl-price-sub">For larger rollouts and tailored requirements</div>
+                <ul className="hl-price-features">
+                  <li>Everything in the standard offering, scoped to your org</li>
+                  <li>Volume pricing and contract terms to match your size</li>
+                  <li>Custom integrations and deployment options (as agreed)</li>
+                  <li>Security, compliance, and data-handling discussions</li>
+                  <li>Dedicated onboarding and success alignment</li>
+                  <li>SLA and support levels tailored to your needs</li>
+                </ul>
+                <button
+                  type="button"
+                  className="hl-btn-primary"
+                  onClick={() => {
+                    setContactPlan("enterprise");
+                    setContactOpen(true);
+                  }}
+                >
+                  Contact us
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <PricingContactModal
+        open={contactOpen}
+        planType={contactPlan}
+        onClose={() => setContactOpen(false)}
+      />
 
       {/* Testimonials */}
       <div className="hl-testi-section" id="testimonials">
