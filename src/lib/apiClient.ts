@@ -165,12 +165,21 @@ export const apiClient = async <T>(
     throw new Error(errorMessage);
   }
 
-  // 204 No Content (e.g. DELETE) - no body, do not parse JSON
+  // 204 No Content — no body
   if (response.status === 204) {
     return undefined as unknown as Promise<T>;
   }
 
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  if (!text.trim()) {
+    // 200 OK with empty body (e.g. Nest DELETE returning void)
+    return undefined as unknown as Promise<T>;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
 };
 
 // Utility function to check if an error is an authentication error
