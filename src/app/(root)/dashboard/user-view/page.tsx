@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { AuthGuard } from "@/components/AuthGuard";
 import { StatCard } from "@/components/ui/StatCard/StatCard";
 import { AppUsageSection } from "@/components/ui/AppUsageSection";
+import { ProductivityTimeline } from "@/components/ui/ProductivityTimeline";
+import { fetchTimelineSlots } from "@/services/timeline";
 import {
   fetchDashboardStats,
   formatDuration,
@@ -36,6 +39,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/DropdownMenu/DropdownMenu";
 import type { AppUsageItem } from "@/components/ui/AppUsageSection";
+import { listPendingOfflineTimeRequests } from "@/services/offlineTimeRequests";
 
 type DashboardStat = {
   label: string;
@@ -252,6 +256,63 @@ const UserViewPage = () => {
     [period, currentDate, customStartDate, customEndDate]
   );
 
+  /** Same rule as personal dashboard: timeline is one calendar day only (not week/month / multi-day range). */
+  const useRange = !!(dateRange.startDate && dateRange.endDate);
+
+  const showProductivityTimeline = useMemo(() => {
+    if (selectedUserId == null) return false;
+    if (period !== "day") return false;
+    if (customStartDate && customEndDate && customStartDate !== customEndDate) {
+      return false;
+    }
+    return true;
+  }, [selectedUserId, period, customStartDate, customEndDate]);
+
+  const {
+    data: timelineSlots,
+    isLoading: isTimelineLoading,
+    isError: isTimelineError,
+    error: timelineError,
+  } = useQuery({
+    queryKey: [
+      "timeline",
+      "user-view",
+      selectedUserId,
+      useRange ? undefined : dateRange.date,
+      dateRange.startDate,
+      dateRange.endDate,
+      timezone,
+    ],
+    queryFn: () =>
+      fetchTimelineSlots({
+        date: useRange ? undefined : dateRange.date,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        timezone,
+        viewAsUserId: selectedUserId!,
+      }),
+    enabled: Boolean(showProductivityTimeline && selectedUserId != null),
+    refetchInterval: useRange ? false : 30000,
+    staleTime: 20000,
+  });
+
+  /** Tenant-wide pending list (admin API); filter to the user being viewed for the sky overlay. */
+  const { data: tenantPendingOffline } = useQuery({
+    queryKey: ["offline-time-requests", "pending"],
+    queryFn: listPendingOfflineTimeRequests,
+    enabled: Boolean(showProductivityTimeline && selectedUserId != null),
+    staleTime: 30000,
+    refetchOnWindowFocus: true,
+  });
+
+  const pendingOfflineRangesForUser = useMemo(
+    () =>
+      tenantPendingOffline
+        ?.filter((r) => r.userId === selectedUserId)
+        .map((r) => ({ startAt: r.startAt, endAt: r.endAt })) ?? [],
+    [tenantPendingOffline, selectedUserId]
+  );
+
   const selectedUser = useMemo(
     () => users.find((u) => u.id === selectedUserId) ?? null,
     [users, selectedUserId]
@@ -349,7 +410,7 @@ const UserViewPage = () => {
       <div className="space-y-6">
         <PageHeader
           title="User's View"
-          description="View a user's dashboard exactly as they see it. Select a user below."
+          description="View a user's dashboard like their own: stats, productivity timeline (single day only), and app usage. Select a user below."
         />
 
         {!selectedUserId ? (
@@ -454,6 +515,35 @@ const UserViewPage = () => {
                 ))
               )}
             </div>
+
+            {showProductivityTimeline ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-3">
+                  Productivity timeline
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                  Same 5-minute view as the user&apos;s dashboard for the selected day. Pending
+                  offline-time requests appear with the same highlight as for the user.
+                  Drag-to-request is only available on the user&apos;s own dashboard.
+                </p>
+                {isTimelineLoading ? (
+                  <p className="text-sm text-slate-500 py-8 text-center">
+                    Loading productivity timeline…
+                  </p>
+                ) : isTimelineError ? (
+                  <p className="text-sm text-red-600 dark:text-red-400 py-4">
+                    {timelineError instanceof Error
+                      ? timelineError.message
+                      : "Failed to load productivity timeline"}
+                  </p>
+                ) : (
+                  <ProductivityTimeline
+                    slots={timelineSlots ?? []}
+                    pendingOfflineRanges={pendingOfflineRangesForUser}
+                  />
+                )}
+              </div>
+            ) : null}
 
             <div className="space-y-4">
               {isAppUsageLoading ? (

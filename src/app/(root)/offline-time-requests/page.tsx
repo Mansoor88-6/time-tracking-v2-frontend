@@ -19,10 +19,29 @@ function formatRange(r: OfflineTimeRequestDto): string {
   return `${a.toLocaleString()} → ${b.toLocaleString()}`;
 }
 
+function durationMs(r: OfflineTimeRequestDto): number {
+  return Math.max(
+    0,
+    new Date(r.endAt).getTime() - new Date(r.startAt).getTime()
+  );
+}
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return "0 min";
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  if (h > 0) return `${h}h ${min}m`;
+  return `${min} min`;
+}
+
+type DurationSort = "none" | "asc" | "desc";
+
 export default function OfflineTimeRequestsPage() {
   const queryClient = useQueryClient();
   const [users, setUsers] = useState<User[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [durationSort, setDurationSort] = useState<DurationSort>("none");
 
   useEffect(() => {
     void usersApi
@@ -43,6 +62,24 @@ export default function OfflineTimeRequestsPage() {
     queryKey: ["offline-time-requests", "pending"],
     queryFn: listPendingOfflineTimeRequests,
   });
+
+  const sortedPending = useMemo(() => {
+    if (!pending?.length) return pending ?? [];
+    if (durationSort === "none") return pending;
+    const copy = [...pending];
+    copy.sort((a, b) => {
+      const da = durationMs(a);
+      const db = durationMs(b);
+      return durationSort === "asc" ? da - db : db - da;
+    });
+    return copy;
+  }, [pending, durationSort]);
+
+  const cycleDurationSort = useCallback(() => {
+    setDurationSort((s) =>
+      s === "none" ? "asc" : s === "asc" ? "desc" : "none"
+    );
+  }, []);
 
   const onApprove = useCallback(
     async (id: number) => {
@@ -112,6 +149,23 @@ export default function OfflineTimeRequestsPage() {
                     Time range
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-700">
+                    <button
+                      type="button"
+                      onClick={cycleDurationSort}
+                      className="inline-flex items-center gap-1.5 rounded-md font-medium text-slate-700 hover:bg-slate-200/80 hover:text-slate-900 -mx-1 px-1 py-0.5 transition-colors"
+                      title="Sort by duration: shortest first, longest first, or server order"
+                    >
+                      Duration
+                      <span className="tabular-nums text-xs font-normal text-slate-500">
+                        {durationSort === "none"
+                          ? "↕"
+                          : durationSort === "asc"
+                            ? "↑"
+                            : "↓"}
+                      </span>
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-700">
                     Category
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-700">
@@ -123,13 +177,16 @@ export default function OfflineTimeRequestsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {pending.map((r) => (
+                {sortedPending.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/80">
                     <td className="px-4 py-3 text-slate-900">
                       {userNameById.get(r.userId) ?? `User #${r.userId}`}
                     </td>
                     <td className="max-w-xs px-4 py-3 text-slate-600">
                       {formatRange(r)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-800">
+                      {formatDuration(durationMs(r))}
                     </td>
                     <td className="px-4 py-3 capitalize text-slate-800">
                       {r.category}

@@ -124,6 +124,21 @@ export const ruleCollectionsApi = createApi({
       ],
     }),
 
+    copyRulesFromCollection: builder.mutation<
+      { templateCount: number; rulesWritten: number },
+      { targetId: number; sourceCollectionId: number }
+    >({
+      query: ({ targetId, sourceCollectionId }) => ({
+        url: `/rule-collections/${targetId}/copy-rules`,
+        method: "POST",
+        body: { sourceCollectionId },
+      }),
+      invalidatesTags: (result, error, { targetId }) => [
+        { type: "CollectionRules", id: targetId },
+        { type: "Collection", id: targetId },
+      ],
+    }),
+
     // Mutation: Remove rule from collection
     removeRuleFromCollection: builder.mutation<void, number>({
       query: (ruleId) => ({
@@ -179,6 +194,7 @@ export const {
   useUpdateCollectionMutation,
   useDeleteCollectionMutation,
   useAddRulesToCollectionMutation,
+  useCopyRulesFromCollectionMutation,
   useRemoveRuleFromCollectionMutation,
   useAssignCollectionToTeamsMutation,
   useUnassignCollectionFromTeamMutation,

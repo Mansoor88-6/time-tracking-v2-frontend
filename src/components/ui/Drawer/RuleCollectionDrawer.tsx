@@ -7,7 +7,8 @@ import {
   getPrimaryButtonStyle, 
   getCategoryStylesUtil 
 } from "@/theme";
-import { BiX, BiCheck, BiSearch } from "react-icons/bi";
+import { BiX, BiCheck, BiSearch, BiCopy, BiPlus } from "react-icons/bi";
+import { toast } from "react-toastify";
 import { RuleType, SuggestedApp } from "@/lib/api/rule-collections";
 import { AppType, AppCategory } from "@/lib/api/productivity-rules";
 import { Team } from "@/lib/api/teams";
@@ -20,6 +21,8 @@ interface SelectedRule {
   ruleType?: RuleType;
   pattern?: string;
   suggestedCategory?: AppCategory;
+  /** Rules added via the custom domain/URL field — shown at bottom of configure list */
+  addedViaCustomInput?: boolean;
 }
 
 interface RuleCollectionDrawerProps {
@@ -44,6 +47,10 @@ interface RuleCollectionDrawerProps {
   errors: ReturnType<typeof import("react-hook-form").useForm>["formState"]["errors"];
   customInputRef: React.RefObject<HTMLInputElement>;
   mode?: "create" | "edit";
+  /** teamId -> collection name for teams already assigned to another collection */
+  teamBlockMap?: Record<number, string>;
+  /** Teams assigned to the collection being edited (so they stay selectable) */
+  currentCollectionTeamIds?: number[];
   initialCollection?: {
     id: number;
     name: string;
@@ -58,6 +65,10 @@ interface RuleCollectionDrawerProps {
       pattern?: string | null;
     }>;
   } | null;
+  /** Other collections (excluding this one) — enables "Import rules" in edit mode */
+  importFromCollections?: { id: number; name: string }[];
+  onImportFromCollection?: (sourceCollectionId: number) => Promise<void>;
+  isImporting?: boolean;
 }
 
 // Section Header Component
@@ -98,6 +109,7 @@ const AppSelectionTopBar: React.FC<{
   setCustomInput: (value: string) => void;
   onAddCustom: () => void;
 }> = ({ searchTerm, setSearchTerm, selectedAppType, setSelectedAppType, customInput, setCustomInput, onAddCustom }) => {
+  const canAdd = customInput.trim().length > 0;
   const tabs = [
     { value: "all" as const, label: "All" },
     { value: "desktop" as const, label: "Desktop" },
@@ -126,6 +138,9 @@ const AppSelectionTopBar: React.FC<{
             placeholder="Search suggested apps..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
           />
         </div>
         <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
@@ -147,28 +162,55 @@ const AppSelectionTopBar: React.FC<{
         </div>
       </div>
 
-      {/* Custom Input */}
-      <div>
-        <input
-          type="text"
-          className={cn(
-            "w-full px-4 py-2.5 rounded-lg text-sm",
-            "bg-slate-50 dark:bg-slate-800",
-            "border border-slate-200 dark:border-slate-700",
-            "text-slate-900 dark:text-slate-100",
-            "placeholder-slate-400",
-            "focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary",
-            "transition-all"
-          )}
-          placeholder="Add custom URL or Domain (e.g. github.com/user/*). Press Enter to add."
-          value={customInput}
-          onChange={(e) => setCustomInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && customInput.trim()) {
-              onAddCustom();
-            }
-          }}
-        />
+      {/* Custom domain / URL — Enter must not submit the parent form */}
+      <div className="space-y-2">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+          Custom domain or URL
+        </label>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text"
+            className={cn(
+              "min-w-0 flex-1 px-4 py-2.5 rounded-lg text-sm",
+              "bg-slate-50 dark:bg-slate-800",
+              "border border-slate-200 dark:border-slate-700",
+              "text-slate-900 dark:text-slate-100",
+              "placeholder-slate-400",
+              "focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary",
+              "transition-all"
+            )}
+            placeholder="e.g. github.com, https://jira.example.com/browse/*"
+            value={customInput}
+            onChange={(e) => setCustomInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (customInput.trim()) {
+                  onAddCustom();
+                }
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={!canAdd}
+            onClick={() => {
+              if (canAdd) onAddCustom();
+            }}
+            className={cn(
+              "inline-flex items-center justify-center gap-2 shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold",
+              "border-2 border-primary bg-primary text-white",
+              "hover:opacity-95 transition-opacity",
+              "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40"
+            )}
+          >
+            <BiPlus className="w-5 h-5" />
+            Add
+          </button>
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Added entries appear at the bottom of the list below so you can set category and rule type there.
+        </p>
       </div>
     </div>
   );
@@ -462,34 +504,50 @@ const TeamCheckbox: React.FC<{
   team: Team;
   teamId: string;
   register: ReturnType<typeof import("react-hook-form").useForm>["register"];
-}> = ({ team, teamId, register }) => {
+  disabled?: boolean;
+  disabledReason?: string;
+}> = ({ team, teamId, register, disabled = false, disabledReason }) => {
   return (
     <label
       className={cn(
-        "flex items-center gap-3 p-4 rounded-xl cursor-pointer transition-all",
+        "flex items-center gap-3 p-4 rounded-xl transition-all",
         "bg-white dark:bg-slate-800",
         "border-2 border-slate-200 dark:border-slate-700",
-        "hover:border-primary/50 hover:translate-y-[-2px]",
-        "[&:has(input:checked)]:border-primary [&:has(input:checked)]:bg-primary/5",
-        "dark:[&:has(input:checked)]:bg-primary/10"
+        disabled
+          ? "opacity-60 cursor-not-allowed"
+          : "cursor-pointer hover:border-primary/50 hover:translate-y-[-2px] [&:has(input:checked)]:border-primary [&:has(input:checked)]:bg-primary/5 dark:[&:has(input:checked)]:bg-primary/10"
       )}
+      title={disabled ? disabledReason : undefined}
     >
+      {!disabled ? (
       <input
         type="checkbox"
         value={teamId}
         {...register("teamIds", { required: "Select at least one team" })}
         className="sr-only peer"
       />
+      ) : (
+        <input type="checkbox" disabled className="sr-only peer" />
+      )}
       <div className={cn(
         "w-6 h-6 rounded flex items-center justify-center flex-shrink-0 transition-all",
         "border-2 border-slate-300 dark:border-slate-600",
-        "peer-checked:bg-primary peer-checked:border-primary"
+        !disabled && "peer-checked:bg-primary peer-checked:border-primary"
       )}>
-        <BiCheck className="w-4 h-4 text-white opacity-0 peer-checked:opacity-100 transition-opacity" />
+        {!disabled && (
+          <BiCheck className="w-4 h-4 text-white opacity-0 peer-checked:opacity-100 transition-opacity" />
+        )}
       </div>
-      <span className="font-semibold text-slate-900 dark:text-slate-100">
-        {team.name}
-      </span>
+      <div className="flex flex-col min-w-0">
+        <span className="font-semibold text-slate-900 dark:text-slate-100">
+          {team.name}
+        </span>
+        {disabled && disabledReason && (
+          <span className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+            {disabledReason}
+          </span>
+        )}
+      </div>
     </label>
   );
 };
@@ -569,11 +627,29 @@ export const RuleCollectionDrawer: React.FC<RuleCollectionDrawerProps> = ({
   customInputRef: _customInputRef,
   mode = "create",
   initialCollection,
+  teamBlockMap = {},
+  currentCollectionTeamIds = [],
+  importFromCollections = [],
+  onImportFromCollection,
+  isImporting = false,
 }) => {
   // Local state for search and bulk selection
   const [searchTerm, setSearchTerm] = useState("");
   const [customInput, setCustomInput] = useState("");
   const [bulkSelection, setBulkSelection] = useState<string[]>([]);
+  const [importSourceId, setImportSourceId] = useState<string>("");
+
+  const showImportSection =
+    mode === "edit" &&
+    importFromCollections.length > 0 &&
+    !!onImportFromCollection;
+  const appRulesSectionNumber = showImportSection ? 4 : 3;
+
+  useEffect(() => {
+    if (!isOpen) {
+      setImportSourceId("");
+    }
+  }, [isOpen]);
 
   // Pre-populate form when in edit mode
   useEffect(() => {
@@ -626,23 +702,49 @@ export const RuleCollectionDrawer: React.FC<RuleCollectionDrawerProps> = ({
     );
   }, [suggestedApps, selectedAppType, searchTerm]);
 
+  /** Same identity as backend dedupe: web rule key for duplicate detection */
+  const webRuleIdentityKey = (r: SelectedRule): string => {
+    if (r.appType !== "web") return "";
+    const rt = r.ruleType ?? RuleType.DOMAIN;
+    const pat = r.pattern ?? "";
+    return `${r.appName.trim().toLowerCase()}\0${rt}\0${pat}`;
+  };
+
   // Handle custom input
   const handleAddCustom = () => {
-    if (customInput.trim()) {
-      const value = customInput.trim();
-      const ruleType = detectRuleType(value);
-      const newRule: SelectedRule = {
-        tempId: crypto.randomUUID(),
-        appName: value,
-        appType: "web",
-        category: "neutral",
-        ruleType,
-        pattern: ruleType === RuleType.URL_PATTERN ? value : undefined,
-      };
-      setSelectedRules((prev) => [...prev, newRule]);
-      setCustomInput("");
-    }
+    if (!customInput.trim()) return;
+    const value = customInput.trim();
+    const ruleType = detectRuleType(value);
+    const pattern = ruleType === RuleType.URL_PATTERN ? value : undefined;
+    const candidate: SelectedRule = {
+      tempId: crypto.randomUUID(),
+      appName: value,
+      appType: "web",
+      category: "neutral",
+      ruleType,
+      pattern,
+      addedViaCustomInput: true,
+    };
+    const candKey = webRuleIdentityKey(candidate);
+    setSelectedRules((prev) => {
+      if (prev.some((r) => webRuleIdentityKey(r) === candKey)) {
+        toast.info(
+          "This domain or URL is already in the list (same type and pattern).",
+          { toastId: "rule-collection-custom-dup" }
+        );
+        return prev;
+      }
+      return [...prev, candidate];
+    });
+    setCustomInput("");
   };
+
+  /** Suggested picks first; custom-input additions at bottom for classification */
+  const rulesOrderedForConfigure = useMemo(() => {
+    const fromSuggestions = selectedRules.filter((r) => !r.addedViaCustomInput);
+    const fromCustom = selectedRules.filter((r) => r.addedViaCustomInput);
+    return [...fromSuggestions, ...fromCustom];
+  }, [selectedRules]);
 
   // Enhanced toggle with tempId generation
   const handleToggleRule = (app: SuggestedApp) => {
@@ -863,18 +965,27 @@ export const RuleCollectionDrawer: React.FC<RuleCollectionDrawerProps> = ({
           <SectionHeader
             number={2}
             title="Assign to Teams"
-            description="Select one or more teams that will use this rule collection"
+            description="Each team can belong to only one collection. Teams already assigned elsewhere are unavailable until removed from that collection."
           />
           <div className="ml-14">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {teams.map((team) => {
                 const teamId = team.id.toString();
+                const blockedBy = teamBlockMap[team.id];
+                const onThisCollection = currentCollectionTeamIds.includes(team.id);
+                const teamDisabled = !!blockedBy && !onThisCollection;
                 return (
                   <TeamCheckbox
                     key={team.id}
                     team={team}
                     teamId={teamId}
                     register={register}
+                    disabled={teamDisabled}
+                    disabledReason={
+                      teamDisabled && blockedBy
+                        ? `Already in collection "${blockedBy}"`
+                        : undefined
+                    }
                   />
                 );
               })}
@@ -887,11 +998,92 @@ export const RuleCollectionDrawer: React.FC<RuleCollectionDrawerProps> = ({
           </div>
         </div>
 
-        {/* Section 3: App & Domain Rules */}
+        {/* Import rules from another collection (edit only) */}
+        {showImportSection && (
+            <div className="section">
+              <SectionHeader
+                number={3}
+                title="Import rules from another collection"
+                description="Copy all rule definitions from a source collection into this one. They are applied to every team assigned here. Rules for the same app replace what you already have."
+              />
+              <div className="ml-14 space-y-4">
+                <div
+                  className={cn(
+                    "rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-600",
+                    "bg-slate-50/80 dark:bg-slate-900/40 p-5"
+                  )}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                    <div className="flex-1 min-w-0">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
+                        Source collection
+                      </label>
+                      <select
+                        value={importSourceId}
+                        onChange={(e) => setImportSourceId(e.target.value)}
+                        disabled={isImporting}
+                        className={cn(
+                          "w-full px-4 py-3 rounded-xl text-sm",
+                          "bg-white dark:bg-slate-800",
+                          "border-2 border-slate-200 dark:border-slate-700",
+                          "text-slate-900 dark:text-slate-100",
+                          "focus:outline-none focus:border-primary",
+                          "disabled:opacity-60"
+                        )}
+                      >
+                        <option value="">Choose a collection…</option>
+                        {importFromCollections.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={
+                        isImporting ||
+                        !importSourceId ||
+                        importSourceId === initialCollection?.id?.toString()
+                      }
+                      onClick={async () => {
+                        const sid = parseInt(importSourceId, 10);
+                        if (!sid || Number.isNaN(sid)) return;
+                        await onImportFromCollection(sid);
+                      }}
+                      className={cn(
+                        "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold",
+                        "bg-gradient-to-r from-primary to-primary-dark text-white shadow-md",
+                        "hover:opacity-95 transition-opacity",
+                        "disabled:opacity-50 disabled:cursor-not-allowed",
+                        "whitespace-nowrap"
+                      )}
+                    >
+                      {isImporting ? (
+                        <>Importing…</>
+                      ) : (
+                        <>
+                          <BiCopy className="w-5 h-5" />
+                          Import rules
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Tip: use this after consolidating teams so you do not have to re-create
+                    dozens of apps and domains by hand. Import saves immediately; you can still
+                    adjust categories below before clicking Update Collection.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {/* Section: App & Domain Rules */}
         {suggestedApps && (
           <div className="section">
             <SectionHeader
-              number={3}
+              number={appRulesSectionNumber}
               title="App & Domain Rules"
               description="Select from suggestions or add custom ones"
             />
@@ -943,7 +1135,7 @@ export const RuleCollectionDrawer: React.FC<RuleCollectionDrawerProps> = ({
 
               {/* Configure Rules Section */}
               <ConfigureRulesSection
-                selectedRules={selectedRules}
+                selectedRules={rulesOrderedForConfigure}
                 bulkSelection={bulkSelection}
                 onBulkToggle={handleBulkToggle}
                 onCategoryChange={handleRuleCategoryChange}
@@ -956,7 +1148,7 @@ export const RuleCollectionDrawer: React.FC<RuleCollectionDrawerProps> = ({
         )}
 
         {/* Selected Summary */}
-        <SelectedSummaryCard selectedRules={selectedRules} />
+        <SelectedSummaryCard selectedRules={rulesOrderedForConfigure} />
       </form>
     </Drawer>
   );

@@ -21,22 +21,16 @@ const SessionsPage = () => {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [revoking, setRevoking] = useState(false);
 
-  const isOrgAdmin = user?.role === "ORG_ADMIN";
+  /** Org-wide list: tenant users’ active refresh-token sessions (not desktop “online” status). */
+  const isOrgWideSessionView =
+    user?.role === "ORG_ADMIN" || user?.role === "SUPER_ADMIN";
 
   const loadSessions = async () => {
     try {
       setLoading(true);
-      let data: Session[];
-      if (isOrgAdmin) {
-        try {
-          data = await sessionsApi.getOrganizationSessions();
-        } catch {
-          // Fallback to user sessions if org endpoint fails
-          data = await sessionsApi.getMySessions();
-        }
-      } else {
-        data = await sessionsApi.getMySessions();
-      }
+      const data = isOrgWideSessionView
+        ? await sessionsApi.getOrganizationSessions()
+        : await sessionsApi.getMySessions();
       setSessions(data);
       setError(null);
     } catch (err) {
@@ -57,6 +51,9 @@ const SessionsPage = () => {
   const filteredSessions = sessions.filter((session) => {
     const searchLower = searchQuery.toLowerCase();
     return (
+      session.userName?.toLowerCase().includes(searchLower) ||
+      session.userEmail?.toLowerCase().includes(searchLower) ||
+      session.tenantName?.toLowerCase().includes(searchLower) ||
       session.deviceName?.toLowerCase().includes(searchLower) ||
       session.deviceId?.toLowerCase().includes(searchLower) ||
       session.ipAddress?.toLowerCase().includes(searchLower) ||
@@ -95,12 +92,43 @@ const SessionsPage = () => {
   };
 
   const columns: AdminTableColumn<Session>[] = [
+    ...(isOrgWideSessionView
+      ? ([
+          {
+            key: "userEmail",
+            label: "User",
+            sortable: true,
+            render: (row) => (
+              <div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">
+                  {row.userName || row.userEmail || `User #${row.userId}`}
+                </div>
+                {row.userName && row.userEmail && (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                    {row.userEmail}
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          ...(user?.role === "SUPER_ADMIN"
+            ? ([
+                {
+                  key: "tenantName",
+                  label: "Organization",
+                  sortable: true,
+                  render: (row) => row.tenantName || "—",
+                },
+              ] as AdminTableColumn<Session>[])
+            : []),
+        ] as AdminTableColumn<Session>[])
+      : []),
     {
       key: "deviceName",
       label: "Device",
       sortable: true,
       render: (row) =>
-        row.deviceName || row.deviceId || "Unknown Device",
+        row.deviceName || row.deviceId || "—",
     },
     {
       key: "ipAddress",
@@ -146,16 +174,22 @@ const SessionsPage = () => {
         <PageHeader
           title="Sessions"
           description={
-            isOrgAdmin
-              ? "View and manage active sessions across your organization. Revoke suspicious or unwanted sessions."
-              : "View your active sessions. You can revoke sessions from devices you no longer use."
+            isOrgWideSessionView
+              ? user?.role === "SUPER_ADMIN"
+                ? "Active login sessions (refresh tokens) across all organizations. Users actively tracking time may use the desktop app without a web session listed here."
+                : "Active login sessions for users in your organization (web or app sign-in). Revoke a session to sign that user out on that device."
+              : "Your active login sessions. You can revoke sessions from devices you no longer use."
           }
         />
 
         <DataToolbar
           searchValue={searchQuery}
           onSearchChange={setSearchQuery}
-          searchPlaceholder="Search by device, IP, or user agent..."
+          searchPlaceholder={
+            isOrgWideSessionView
+              ? "Search by user, organization, device, IP…"
+              : "Search by device, IP, or user agent..."
+          }
         />
 
         {error && (
@@ -168,7 +202,11 @@ const SessionsPage = () => {
           data={filteredSessions}
           columns={columns}
           loading={loading}
-          emptyMessage="No active sessions found."
+          emptyMessage={
+            isOrgWideSessionView
+              ? "No active login sessions for this view. Users need to sign in (web or API) to appear here; tracking-only desktop activity does not create a row."
+              : "No active sessions found."
+          }
           rowActions={(row) => (
             <div className="flex items-center justify-end">
               <button

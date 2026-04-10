@@ -15,6 +15,7 @@ import {
   useCreateCollectionMutation,
   useUpdateCollectionMutation,
   useDeleteCollectionMutation,
+  useCopyRulesFromCollectionMutation,
   ruleCollectionsApi as rtkRuleCollectionsApi,
 } from "@/redux/services/ruleCollectionsApi";
 import {
@@ -28,7 +29,7 @@ import { AppType, AppCategory } from "@/lib/api/productivity-rules";
 import { teamsApi, Team } from "@/lib/api/teams";
 import { productivityRulesApi, TeamProductivityRule } from "@/lib/api/productivity-rules";
 import { useAppSelector, useAppDispatch } from "@/redux/hooks";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { BiPlus, BiEdit, BiTrash, BiX, BiCheck, BiShow } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
@@ -52,6 +53,7 @@ interface SelectedRule {
   ruleType?: RuleType;
   pattern?: string;
   suggestedCategory?: AppCategory; // Only for UI, will be filtered out before sending
+  addedViaCustomInput?: boolean;
 }
 
 const CollectionsPage = () => {
@@ -120,6 +122,8 @@ const CollectionsPage = () => {
   const [createCollection] = useCreateCollectionMutation();
   const [updateCollection] = useUpdateCollectionMutation();
   const [deleteCollection] = useDeleteCollectionMutation();
+  const [copyRulesFromCollection, { isLoading: isImportingRules }] =
+    useCopyRulesFromCollectionMutation();
 
   const {
     register: registerCreate,
@@ -170,6 +174,97 @@ const CollectionsPage = () => {
       : "Failed to load collections"
     : null;
 
+  const excludedCollectionIdForTeamBlock =
+    isEditModalOpen && selectedCollection ? selectedCollection.id : undefined;
+
+  const teamBlockMap = useMemo(() => {
+    const m: Record<number, string> = {};
+    for (const c of collections) {
+      if (
+        excludedCollectionIdForTeamBlock !== undefined &&
+        c.id === excludedCollectionIdForTeamBlock
+      ) {
+        continue;
+      }
+      for (const ta of c.teamAssignments ?? []) {
+        m[ta.teamId] = c.name;
+      }
+    }
+    return m;
+  }, [collections, excludedCollectionIdForTeamBlock]);
+
+  const currentCollectionTeamIds = useMemo(
+    () =>
+      isEditModalOpen && selectedCollection
+        ? selectedCollection.teamAssignments?.map((ta) => ta.teamId) ?? []
+        : [],
+    [isEditModalOpen, selectedCollection],
+  );
+
+  const importFromCollections = useMemo(() => {
+    if (!selectedCollection?.id) return [];
+    return collections
+      .filter((c) => c.id !== selectedCollection.id)
+      .map((c) => ({ id: c.id, name: c.name }));
+  }, [collections, selectedCollection?.id]);
+
+  const handleImportFromCollection = async (sourceCollectionId: number) => {
+    if (!selectedCollection) return;
+    try {
+      const result = await copyRulesFromCollection({
+        targetId: selectedCollection.id,
+        sourceCollectionId,
+      }).unwrap();
+
+      const rules = await ruleCollectionsApi.getCollectionRules(
+        selectedCollection.id
+      );
+      setSelectedRules(
+        rules.map((rule) => ({
+          tempId: crypto.randomUUID(),
+          appName: rule.appName,
+          appType: rule.appType,
+          category: rule.category,
+          ruleType: (rule.ruleType as RuleType) || undefined,
+          pattern: rule.pattern || undefined,
+        }))
+      );
+
+      dispatch(
+        rtkRuleCollectionsApi.util.invalidateTags([
+          { type: "CollectionRules", id: selectedCollection.id },
+          { type: "Collection", id: selectedCollection.id },
+          { type: "Collection", id: "LIST" },
+        ])
+      );
+
+      if (result.templateCount === 0) {
+        toast.info("Source collection has no rules to import.");
+      } else {
+        toast.success(
+          `Imported ${result.templateCount} rule template${
+            result.templateCount === 1 ? "" : "s"
+          } (${result.rulesWritten} row${
+            result.rulesWritten === 1 ? "" : "s"
+          } for your teams).`
+        );
+      }
+    } catch (err) {
+      const msg =
+        err &&
+        typeof err === "object" &&
+        "data" in err &&
+        err.data &&
+        typeof err.data === "object" &&
+        "message" in err.data
+          ? String((err.data as { message: string }).message)
+          : err instanceof Error
+            ? err.message
+            : "Failed to import rules";
+      toast.error(msg);
+    }
+  };
+
   const handleCreate = async (data: CollectionFormData) => {
     if (selectedRules.length === 0) {
       toast.error("Please select at least one app/domain");
@@ -189,8 +284,10 @@ const CollectionsPage = () => {
   }
 
     try {
-      // Remove frontend-only properties (tempId, suggestedCategory) from rules before sending to backend
-      const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
+      // Remove frontend-only properties from rules before sending to backend
+      const rulesToSend = selectedRules.map(
+        ({ tempId, suggestedCategory, addedViaCustomInput: _a, ...rule }) => rule
+      );
       
       await createCollection({
         name: data.name,
@@ -218,8 +315,15 @@ const CollectionsPage = () => {
     ? [rawTeamIds]
     : [];
 
+  if (teamIdsArray.length === 0) {
+    toast.error("Please select at least one team");
+    return;
+  }
+
     try {
-      const rulesToSend = selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule);
+      const rulesToSend = selectedRules.map(
+        ({ tempId, suggestedCategory, addedViaCustomInput: _a, ...rule }) => rule
+      );
 
       await updateCollection({
         id: collectionId,
@@ -435,7 +539,7 @@ const CollectionsPage = () => {
       <div className="space-y-6">
         <PageHeader
           title="Rule Collections"
-          description="Create and manage rule collections that can be shared across teams"
+          description="Create and manage rule collections. Each team can belong to only one collection."
         />
 
         <DataToolbar
@@ -480,6 +584,8 @@ const CollectionsPage = () => {
           onSubmit={handleSubmitCreate(handleCreate)}
           isLoading={isSubmittingCreate}
           teams={teams}
+          teamBlockMap={teamBlockMap}
+          currentCollectionTeamIds={[]}
           suggestedApps={suggestedApps}
           selectedRules={selectedRules}
           setSelectedRules={setSelectedRules}
@@ -525,6 +631,8 @@ const CollectionsPage = () => {
             onSubmit={handleSubmitEdit(handleEdit)}
             isLoading={isSubmittingEdit}
             teams={teams}
+            teamBlockMap={teamBlockMap}
+            currentCollectionTeamIds={currentCollectionTeamIds}
             suggestedApps={suggestedApps}
             selectedRules={selectedRules}
             setSelectedRules={setSelectedRules}
@@ -550,11 +658,16 @@ const CollectionsPage = () => {
                     teamIds:
                       selectedCollection.teamAssignments?.map((ta) => ta.teamId) || [],
                     rules: selectedRules.length > 0 
-                      ? selectedRules.map(({ tempId, suggestedCategory, ...rule }) => rule)
+                      ? selectedRules.map(
+                          ({ tempId, suggestedCategory, addedViaCustomInput: _a, ...rule }) => rule
+                        )
                       : undefined,
                   }
                 : null
             }
+            importFromCollections={importFromCollections}
+            onImportFromCollection={handleImportFromCollection}
+            isImporting={isImportingRules}
           />
         )}
 

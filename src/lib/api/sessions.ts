@@ -4,6 +4,10 @@ export interface Session {
   id: number;
   userId: number;
   tenantId?: number | null;
+  /** Present for org / platform admin session lists */
+  userName?: string | null;
+  userEmail?: string | null;
+  tenantName?: string | null;
   deviceId?: string | null;
   deviceName?: string | null;
   userAgent?: string | null;

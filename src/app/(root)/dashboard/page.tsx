@@ -560,7 +560,40 @@ const OrgDashboardPage = () => {
         ]
       : [];
 
-    const userStatsColumns: AdminTableColumn<typeof userStats[0]>[] = [
+    const renderOrgArrivalCell = (row: (typeof userStats)[0]) => {
+      const ft = formatTimeWithSuffix(row.stats.arrivalTime);
+      if (!ft) return <span className="text-slate-500">--:--</span>;
+      return (
+        <span>
+          {ft.time}
+          <span className="text-slate-500 dark:text-slate-400"> {ft.suffix}</span>
+        </span>
+      );
+    };
+
+    const renderOrgLeftCell = (row: (typeof userStats)[0]) => {
+      if (!showLeftTimeValue) {
+        return <span className="text-slate-500">--:--</span>;
+      }
+      if (row.stats.isOnline) {
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span>--:--</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">Online</span>
+          </div>
+        );
+      }
+      const ft = formatTimeWithSuffix(row.stats.leftTime);
+      if (!ft) return <span className="text-slate-500">--:--</span>;
+      return (
+        <span>
+          {ft.time}
+          <span className="text-slate-500 dark:text-slate-400"> {ft.suffix}</span>
+        </span>
+      );
+    };
+
+    const userStatsColumns: AdminTableColumn<(typeof userStats)[0]>[] = [
       {
         key: "userName",
         label: "User",
@@ -576,6 +609,22 @@ const OrgDashboardPage = () => {
           </div>
         ),
       },
+      ...(showProductivityTimeline
+        ? ([
+            {
+              key: "arrivalTime",
+              label: "Arrival Time",
+              sortable: false,
+              render: renderOrgArrivalCell,
+            },
+            {
+              key: "leftTime",
+              label: "Left Time",
+              sortable: false,
+              render: renderOrgLeftCell,
+            },
+          ] as AdminTableColumn<(typeof userStats)[0]>[])
+        : []),
       {
         key: "productiveTime",
         label: "Productive Time",
@@ -845,6 +894,9 @@ const OrgDashboardPage = () => {
               </h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                 Individual time tracking statistics for each user
+                {showProductivityTimeline
+                  ? " — arrival and left time columns apply to this day only; left time is shown for past days, not the current day."
+                  : ""}
               </p>
             </div>
             <AdminDataTable

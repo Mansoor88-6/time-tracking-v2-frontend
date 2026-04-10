@@ -100,12 +100,12 @@ const DevicesPage = () => {
           },
         ]
       : []),
-    {
-      key: "name",
-      label: "Device Name",
-      sortable: true,
-      render: (row) => row.name || "Unnamed Device",
-    },
+    // {
+    //   key: "name",
+    //   label: "Device Name",
+    //   sortable: true,
+    //   render: (row) => row.name || "Unnamed Device",
+    // },
     {
       key: "deviceId",
       label: "Device ID",

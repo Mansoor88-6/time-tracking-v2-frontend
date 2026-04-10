@@ -85,6 +85,15 @@ export interface AssignCollectionToTeamsDto {
   teamIds: number[];
 }
 
+export interface CopyRulesFromCollectionDto {
+  sourceCollectionId: number;
+}
+
+export interface CopyRulesFromCollectionResult {
+  templateCount: number;
+  rulesWritten: number;
+}
+
 export const ruleCollectionsApi = {
   getSuggestions: async (): Promise<SuggestedAppsResponse> => {
     return apiClient<SuggestedAppsResponse>("/rule-collections/suggestions");
@@ -163,6 +172,19 @@ export const ruleCollectionsApi = {
       method: "POST",
       body: JSON.stringify(data),
     });
+  },
+
+  copyRulesFromCollection: async (
+    targetCollectionId: number,
+    data: CopyRulesFromCollectionDto
+  ): Promise<CopyRulesFromCollectionResult> => {
+    return apiClient<CopyRulesFromCollectionResult>(
+      `/rule-collections/${targetCollectionId}/copy-rules`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    );
   },
 
   removeRule: async (ruleId: number): Promise<void> => {
