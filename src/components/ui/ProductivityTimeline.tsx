@@ -2,19 +2,32 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OfflineTimeRequestModal } from "@/components/ui/OfflineTimeRequestModal";
+import { formatDuration } from "@/services/dashboardStats";
+import { mergeMsIntervals, type MsInterval } from "@/utils/timeline-intervals";
+import {
+  msRangeToSlotIndices,
+  msToTrackSpanPx,
+} from "@/utils/timeline-geometry";
 import { cn } from "@/utils/tw";
 
 /**
  * Represents a single 5-minute time slot in the productivity timeline.
  * `startMinute` is minutes from midnight (0–1435) and percentages are 0–1.
  *
- * When you wire real data, map each bucket of events (e.g. 5‑minute window)
- * to these fields using active durations only:
- * - productivePct    = productiveActiveMs / totalActiveMsForSlot
- * - neutralPct       = neutralActiveMs / totalActiveMsForSlot
- * - unproductivePct  = unproductiveActiveMs / totalActiveMsForSlot
+ * Fractions of the 5‑minute slot (each 0–1; they need not sum to 1 if part of
+ * the slot has no events). The bar renders each fraction as that share of the
+ * column height; the remainder is untracked/empty — do **not** renormalize
+ * categories to fill 100% when sum < 1.
  * - online           = true when there is any tracked activity in the slot
  */
+export type TimelineSlotActivity = {
+  label: string;
+  durationMs: number;
+  category: "productive" | "neutral" | "unproductive";
+};
+
+export type TimelineIntervalIso = { start: string; end: string };
+
 export type TimeSlotData = {
   startMinute: number;
   /** ISO start of this 5-minute bucket (from API); used for offline-time requests. */
@@ -26,6 +39,15 @@ export type TimeSlotData = {
   idlePct: number;
   idleMs: number;
   online: boolean;
+  /** Apps/sites contributing active time in this slot (from API; tooltip breakdown). */
+  activities?: TimelineSlotActivity[];
+  /**
+   * Wall-clock intervals from worker (optional for legacy timelines).
+   * When all slots in a selection include these, blocked intervals use merged active time only.
+   */
+  activeIntervalsUtc?: TimelineIntervalIso[];
+  idleIntervalsUtc?: TimelineIntervalIso[];
+  remainderIntervalsUtc?: TimelineIntervalIso[];
 };
 
 export interface ProductivityTimelineProps {
@@ -56,7 +78,6 @@ const SLOT_BAR_GAP_PX = 2;
 const PRODUCTIVE_COLOR = "#6BBF4E";
 const NEUTRAL_COLOR = "#D0D0D0";
 const UNPRODUCTIVE_COLOR = "#E07A5F";
-const ONLINE_COLOR = "#4BB8E8";
 /** Same light fill as untracked slots — idle time is not a separate “category” color */
 const IDLE_UNTRACKED_BAR_CLASS =
   "bg-slate-100/70 dark:bg-slate-800/60";
@@ -114,6 +135,27 @@ function generateMockSlots(): TimeSlotData[] {
       const nUn = unprod / sum;
       const nIdle = idle / sum;
 
+      const demoActivities: TimelineSlotActivity[] | undefined =
+        inS2 && Math.random() > 0.72
+          ? [
+              {
+                label: "Cursor",
+                durationMs: Math.round(40000 + Math.random() * 80000),
+                category: "productive",
+              },
+              {
+                label: "Google Chrome",
+                durationMs: Math.round(20000 + Math.random() * 50000),
+                category: "productive",
+              },
+              {
+                label: "DBeaver",
+                durationMs: Math.round(10000 + Math.random() * 40000),
+                category: "neutral",
+              },
+            ]
+          : undefined;
+
       slots.push({
         startMinute: minStart,
         slotStartUtc,
@@ -123,6 +165,7 @@ function generateMockSlots(): TimeSlotData[] {
         idlePct: nIdle,
         idleMs: nIdle * SLOT_MINUTES * 60 * 1000,
         online: true,
+        activities: demoActivities,
       });
     } else {
       slots.push({
@@ -163,6 +206,38 @@ function slotRangeToIsoBounds(slots: TimeSlotData[], lo: number, hi: number) {
 
 const SLOT_MS = SLOT_MINUTES * 60 * 1000;
 
+/** Rounds to nearest ms so tooltip/Y-axis match wall-clock slot math. */
+function slotFractionToDurationLabel(pct: number): string {
+  return formatDuration(Math.round(SLOT_MS * pct));
+}
+
+const TIMELINE_Y_AXIS_TICKS: string[] = [1, 0.75, 0.5, 0.25, 0].map((f) =>
+  f === 0 ? "" : formatDuration(Math.round(SLOT_MS * f)),
+);
+
+/** Aligns with SlotBar: fractions of the 5‑min slot, capped when sum > 1, remainder = untracked. */
+export function getSlotFractions(slot: TimeSlotData): {
+  productivePct: number;
+  neutralPct: number;
+  unproductivePct: number;
+  idlePct: number;
+  remainderPct: number;
+} {
+  let p = Math.max(0, slot.productivePct);
+  let n = Math.max(0, slot.neutralPct);
+  let u = Math.max(0, slot.unproductivePct);
+  let i = Math.max(0, slot.idlePct);
+  const sum = p + n + u + i;
+  if (sum > 1 && sum > 0) {
+    p /= sum;
+    n /= sum;
+    u /= sum;
+    i /= sum;
+  }
+  const remainderPct = Math.max(0, 1 - p - n - u - i);
+  return { productivePct: p, neutralPct: n, unproductivePct: u, idlePct: i, remainderPct };
+}
+
 /** Support camelCase or snake_case from API serialization. */
 function getPendingRangeMs(r: {
   startAt: string;
@@ -190,7 +265,9 @@ function slotEligibleForOfflineRequest(
   slot: TimeSlotData,
   pendingRanges: { startAt: string; endAt: string }[]
 ): boolean {
-  const baseIdle = !slot.online || slot.idleMs > 0;
+  const { remainderPct } = getSlotFractions(slot);
+  const baseIdle =
+    !slot.online || slot.idleMs > 0 || remainderPct > 0.001;
   if (!baseIdle) return false;
   if (!pendingRanges.length) return true;
   if (!slot.slotStartUtc) return true;
@@ -219,46 +296,141 @@ function rangeHasOnlyOfflineEligibleSlots(
   return true;
 }
 
-function mergeMsIntervals(
-  intervals: { startMs: number; endMs: number }[]
-): { startMs: number; endMs: number }[] {
-  if (intervals.length === 0) return [];
-  const sorted = [...intervals].sort((a, b) => a.startMs - b.startMs);
-  const out: { startMs: number; endMs: number }[] = [];
-  for (const cur of sorted) {
-    const last = out[out.length - 1];
-    if (!last || cur.startMs > last.endMs) {
-      out.push({ startMs: cur.startMs, endMs: cur.endMs });
-    } else {
-      last.endMs = Math.max(last.endMs, cur.endMs);
-    }
-  }
-  return out;
+function hasWallClockIntervalFields(slot: TimeSlotData): boolean {
+  return (
+    slot.activeIntervalsUtc !== undefined &&
+    slot.idleIntervalsUtc !== undefined &&
+    slot.remainderIntervalsUtc !== undefined
+  );
 }
 
 /**
- * Tracked (non-idle) wall-clock within each online slot — placed at the start of the slot.
- * Claimable idle is the remainder; untracked slots have no blocked time.
+ * Tracked productive+neutral+unproductive wall time (blocked in offline modal).
+ * When all slots expose worker wall-clock intervals, merges those active intervals.
+ * Otherwise uses legacy per-slot prefix of (p+n+u) only — idle is claimable.
  */
 export function computeBlockedIntervalsFromSlots(
   slots: TimeSlotData[],
   lo: number,
   hi: number
 ): { start: string; end: string }[] {
-  const raw: { startMs: number; endMs: number }[] = [];
+  const slice = slots.slice(lo, hi + 1);
+  const useWallClock = slice.length > 0 && slice.every(hasWallClockIntervalFields);
+
+  if (useWallClock) {
+    const raw: MsInterval[] = [];
+    for (const s of slice) {
+      for (const iv of s.activeIntervalsUtc ?? []) {
+        const a = new Date(iv.start).getTime();
+        const b = new Date(iv.end).getTime();
+        if (!Number.isNaN(a) && !Number.isNaN(b) && b > a) {
+          raw.push({ startMs: a, endMs: b });
+        }
+      }
+    }
+    return mergeMsIntervals(raw).map(({ startMs, endMs }) => ({
+      start: new Date(startMs).toISOString(),
+      end: new Date(endMs).toISOString(),
+    }));
+  }
+
+  const rawLegacy: MsInterval[] = [];
   for (let i = lo; i <= hi; i++) {
     const s = slots[i];
     if (!s?.slotStartUtc) continue;
     const slotStart = new Date(s.slotStartUtc).getTime();
     if (!s.online) continue;
-    const blockedMs = SLOT_MS - s.idleMs;
+    const { productivePct, neutralPct, unproductivePct } = getSlotFractions(s);
+    const blockedMs = Math.min(
+      SLOT_MS,
+      (productivePct + neutralPct + unproductivePct) * SLOT_MS,
+    );
     if (blockedMs <= 0) continue;
-    raw.push({ startMs: slotStart, endMs: slotStart + blockedMs });
+    rawLegacy.push({ startMs: slotStart, endMs: slotStart + blockedMs });
   }
-  return mergeMsIntervals(raw).map(({ startMs, endMs }) => ({
+  return mergeMsIntervals(rawLegacy).map(({ startMs, endMs }) => ({
     start: new Date(startMs).toISOString(),
     end: new Date(endMs).toISOString(),
   }));
+}
+
+const SESSION_BLUE_DARK = "#1e3a8a";
+const SESSION_BLUE_LIGHT = "#3b82f6";
+
+function intervalOverlapsPending(
+  startMs: number,
+  endMs: number,
+  pendingRanges: { startAt: string; endAt: string }[],
+): boolean {
+  for (const r of pendingRanges) {
+    const b = getPendingRangeMs(r);
+    if (!b) continue;
+    if (startMs < b.re && endMs > b.rs) return true;
+  }
+  return false;
+}
+
+function computeContiguousRunsByPredicate(
+  slots: TimeSlotData[],
+  pred: (s: TimeSlotData) => boolean,
+): { lo: number; hi: number }[] {
+  const runs: { lo: number; hi: number }[] = [];
+  let i = 0;
+  while (i < slots.length) {
+    while (i < slots.length && !pred(slots[i])) i++;
+    if (i >= slots.length) break;
+    const lo = i;
+    while (i < slots.length && pred(slots[i])) i++;
+    runs.push({ lo, hi: i - 1 });
+  }
+  return runs;
+}
+
+function slotIndexRunToPx(
+  lo: number,
+  hi: number,
+  barW: number,
+  gap: number,
+): { left: number; width: number } {
+  const left = lo * (barW + gap);
+  const width = (hi - lo + 1) * barW + (hi - lo) * gap;
+  return { left, width };
+}
+
+/**
+ * Builds claimable bottom-track segments from contiguous eligible slot runs.
+ * This keeps idle and untracked time visually unified while the offline modal
+ * still uses precise blocked intervals to exclude active time inside the range.
+ */
+function buildClaimableIdleSegments(
+  slots: TimeSlotData[],
+  pendingRanges: { startAt: string; endAt: string }[],
+): MsInterval[] {
+  if (!slots.length) return [];
+  const eligibleRuns = computeContiguousRunsByPredicate(
+    slots,
+    (slot) => slotEligibleForOfflineRequest(slot, pendingRanges),
+  );
+
+  return eligibleRuns
+    .map((run) => {
+      const first = slots[run.lo];
+      const last = slots[run.hi];
+      if (!first?.slotStartUtc || !last?.slotStartUtc) return null;
+
+      const startMs = new Date(first.slotStartUtc).getTime();
+      const lastStartMs = new Date(last.slotStartUtc).getTime();
+      if (Number.isNaN(startMs) || Number.isNaN(lastStartMs)) return null;
+
+      return {
+        startMs,
+        endMs: lastStartMs + SLOT_MS,
+      };
+    })
+    .filter((seg): seg is MsInterval => seg !== null)
+    .filter(
+      (seg) => !intervalOverlapsPending(seg.startMs, seg.endMs, pendingRanges),
+    );
 }
 
 export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
@@ -386,6 +558,23 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
     };
   }, [hoveredSlot]);
 
+  const hoveredSlotFractions = useMemo(() => {
+    if (!hoveredSlot?.online) return null;
+    return getSlotFractions(hoveredSlot);
+  }, [hoveredSlot]);
+
+  const hoveredSlotTotalTrackedMs = useMemo(() => {
+    if (!hoveredSlotFractions) return 0;
+    const f = hoveredSlotFractions;
+    return Math.round(
+      (f.productivePct +
+        f.neutralPct +
+        f.unproductivePct +
+        f.idlePct) *
+        SLOT_MS
+    );
+  }, [hoveredSlotFractions]);
+
   const barsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const clientXToSlotIndex = useCallback(
@@ -447,13 +636,31 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
     pendingOfflineRanges,
   ]);
 
-  const yTicks = ["100%", "75%", "50%", "25%", ""];
+  const yTicks = TIMELINE_Y_AXIS_TICKS;
 
   const slotCount = resolvedSlots.length;
   const barTrackMinWidth =
     slotCount > 0
       ? slotCount * (SLOT_BAR_WIDTH_PX + SLOT_BAR_GAP_PX) - SLOT_BAR_GAP_PX
       : 0;
+
+  const deskTimeBottomTrack = useMemo(() => {
+    const slots = resolvedSlots;
+    if (!slots.length) return null;
+    const offlineRuns = computeContiguousRunsByPredicate(
+      slots,
+      (s) => !s.online,
+    );
+    const onlineRuns = computeContiguousRunsByPredicate(
+      slots,
+      (s) => !!s.online,
+    );
+    const claimableSegments = buildClaimableIdleSegments(
+      slots,
+      pendingOfflineRanges,
+    );
+    return { offlineRuns, onlineRuns, claimableSegments };
+  }, [resolvedSlots, pendingOfflineRanges]);
 
   return (
     <div className="space-y-3">
@@ -469,7 +676,16 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
           dotClassName={IDLE_UNTRACKED_BAR_CLASS}
           label="Idle / untracked"
         />
-        <LegendDot color={ONLINE_COLOR} label="Online" />
+        <LegendDot color={SESSION_BLUE_DARK} label="Session (bottom)" />
+        {onOfflineTimeSubmit ? (
+          <LegendDot
+            dotClassName="border border-dashed border-slate-400 bg-white dark:bg-slate-900"
+            label="Claimable idle (click)"
+          />
+        ) : null}
+        <span className="text-[11px] text-slate-400 dark:text-slate-500">
+          Each column = {SLOT_MINUTES} min clock; stack height matches time in that window.
+        </span>
         {pendingOfflineRanges.length > 0 ? (
           <LegendDot
             color={PENDING_OFFLINE_COLOR}
@@ -481,8 +697,10 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
         <p className="text-xs text-slate-500">
           Drag across <span className="font-medium text-slate-700">idle</span>{" "}
           time or <span className="font-medium text-slate-700">untracked</span>{" "}
-          gaps (no activity). Sky blue slots already have a pending request and
-          cannot be selected again until approved or declined.
+          gaps, or click a white dashed segment in the bottom track to request
+          offline time for that idle/untracked span. Sky blue slots already have
+          a pending request and cannot be selected again until approved or
+          declined.
         </p>
       ) : null}
 
@@ -553,21 +771,96 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
             </div>
           </div>
 
-            {/* Online band */}
+            {/* DeskTime-style summary track: offline gaps, sessions, claimable idle */}
             <div
-              className="mt-0.5 flex h-2 flex-nowrap"
-              style={{ gap: SLOT_BAR_GAP_PX, minWidth: barTrackMinWidth }}
+              className="relative mt-0.5 h-3 select-none"
+              style={{ minWidth: barTrackMinWidth }}
             >
-              {resolvedSlots.map((slot, index) => (
-                <div
-                  key={`timeline-online-${index}`}
-                  className="h-2 flex-shrink-0 rounded-b-[2px]"
-                  style={{
-                    width: SLOT_BAR_WIDTH_PX,
-                    backgroundColor: slot.online ? ONLINE_COLOR : "transparent",
-                  }}
-                />
-              ))}
+              {/* Lane background so untracked gaps are visible (DeskTime-style dashed band) */}
+              <div className="pointer-events-none absolute inset-0 z-0 rounded bg-slate-200/70 dark:bg-slate-800/70" />
+              <div className="pointer-events-none absolute inset-0 z-[1] rounded border border-dashed border-slate-400/80 dark:border-slate-500" />
+              <div className="pointer-events-none absolute inset-0 z-[2]">
+                {deskTimeBottomTrack?.offlineRuns.map((run) => {
+                  const { left, width } = slotIndexRunToPx(
+                    run.lo,
+                    run.hi,
+                    SLOT_BAR_WIDTH_PX,
+                    SLOT_BAR_GAP_PX,
+                  );
+                  return (
+                    <div
+                      key={`off-${run.lo}-${run.hi}`}
+                      className="absolute top-0 h-full rounded-sm bg-slate-300/90 dark:bg-slate-700/85"
+                      style={{ left, width }}
+                    />
+                  );
+                })}
+                {deskTimeBottomTrack?.onlineRuns.map((run, si) => {
+                  const { left, width } = slotIndexRunToPx(
+                    run.lo,
+                    run.hi,
+                    SLOT_BAR_WIDTH_PX,
+                    SLOT_BAR_GAP_PX,
+                  );
+                  const bg = si % 2 === 0 ? SESSION_BLUE_DARK : SESSION_BLUE_LIGHT;
+                  return (
+                    <div
+                      key={`on-${run.lo}-${run.hi}`}
+                      className="absolute top-0 h-full rounded-sm opacity-90"
+                      style={{ left, width, backgroundColor: bg }}
+                    />
+                  );
+                })}
+              </div>
+              {onOfflineTimeSubmit &&
+              deskTimeBottomTrack &&
+              deskTimeBottomTrack.claimableSegments.length > 0 ? (
+                <div className="absolute inset-0 z-[5]">
+                  {deskTimeBottomTrack.claimableSegments.map((seg, i) => {
+                    const { left, width } = msToTrackSpanPx(
+                      seg.startMs,
+                      seg.endMs,
+                      resolvedSlots,
+                      SLOT_MS,
+                      SLOT_BAR_WIDTH_PX,
+                      SLOT_BAR_GAP_PX,
+                    );
+                    const minW = Math.max(width, 4);
+                    const totalMs = seg.endMs - seg.startMs;
+                    return (
+                      <button
+                        key={`claim-${seg.startMs}-${seg.endMs}-${i}`}
+                        type="button"
+                        title={`Claimable: ${formatDuration(totalMs)} — click to request offline time`}
+                        className="absolute top-0 h-full cursor-pointer rounded-sm border border-dashed border-sky-300/90 bg-white/95 shadow-sm ring-1 ring-slate-300/60 hover:bg-white dark:border-sky-500/70 dark:bg-slate-950/95 dark:ring-slate-600 dark:hover:bg-slate-900"
+                        style={{ left, width: minW }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const idx = msRangeToSlotIndices(
+                            seg.startMs,
+                            seg.endMs,
+                            resolvedSlots,
+                            SLOT_MS,
+                          );
+                          if (!idx) return;
+                          if (
+                            !rangeHasOnlyOfflineEligibleSlots(
+                              resolvedSlots,
+                              idx.lo,
+                              idx.hi,
+                              pendingOfflineRanges,
+                            )
+                          )
+                            return;
+                          setOfflineModalRange({ lo: idx.lo, hi: idx.hi });
+                          setOfflineModalOpen(true);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
 
             {/* X axis labels */}
@@ -608,45 +901,176 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       {/* Fixed to viewport so it stays above the hovered bar while the chart scrolls horizontally */}
       {hoveredSlot && tooltipAnchor && (
         <div
-          className="pointer-events-none fixed z-[100] max-w-xs rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-900 shadow-md"
+          className="pointer-events-none fixed z-[100] min-w-[220px] max-w-sm rounded-md border border-gray-200 bg-white px-2.5 py-2 text-[11px] text-gray-900 shadow-md dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
           style={{
             left: tooltipAnchor.x,
             top: tooltipAnchor.y,
             transform: "translate(-50%, calc(-100% - 8px))",
           }}
         >
-          <div className="font-medium text-gray-900">
+          <div className="font-semibold text-gray-900 dark:text-slate-50">
             {formatSlotRange(hoveredSlot.startMinute)}
           </div>
-          <div className="mt-0.5 space-y-0.5 text-gray-600">
+          <div className="mt-1 space-y-1 text-gray-600 dark:text-slate-300">
             {hoveredBarIndex !== null &&
             pendingSlotIndexSet.has(hoveredBarIndex) ? (
-              <div className="font-medium text-sky-700">
+              <div className="font-medium text-sky-700 dark:text-sky-400">
                 Pending offline request — select a different time
               </div>
             ) : null}
             {!hoveredSlot.online ? (
-              <div className="text-gray-700">No tracked activity — untracked time</div>
-            ) : (
+              <div className="text-gray-700 dark:text-slate-300">
+                No tracked activity — untracked time
+              </div>
+            ) : hoveredSlotFractions ? (
               <>
-                <div>
-                  Productive {(hoveredSlot.productivePct * 100).toFixed(0)}% (
-                  {(SLOT_MINUTES * hoveredSlot.productivePct).toFixed(1)}m)
+                <div className="border-b border-gray-100 pb-1.5 text-gray-700 dark:border-slate-700 dark:text-slate-300">
+                  <div>
+                    Categorized:{" "}
+                    {slotFractionToDurationLabel(
+                      hoveredSlotFractions.productivePct +
+                        hoveredSlotFractions.neutralPct +
+                        hoveredSlotFractions.unproductivePct +
+                        hoveredSlotFractions.idlePct,
+                    )}
+                  </div>
+                  {hoveredSlotFractions.remainderPct > 0.001 ? (
+                    <div>
+                      No activity:{" "}
+                      {slotFractionToDurationLabel(
+                        hoveredSlotFractions.remainderPct,
+                      )}{" "}
+                      <span className="text-gray-400 dark:text-slate-500">
+                        (
+                        {(hoveredSlotFractions.remainderPct * 100).toFixed(1)}
+                        % of slot)
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="text-[10px] text-gray-400 dark:text-slate-500">
+                    Slot wall clock: {formatDuration(SLOT_MS)}
+                  </div>
                 </div>
-                <div>
-                  Neutral {(hoveredSlot.neutralPct * 100).toFixed(0)}% (
-                  {(SLOT_MINUTES * hoveredSlot.neutralPct).toFixed(1)}m)
-                </div>
-                <div>
-                  Unproductive {(hoveredSlot.unproductivePct * 100).toFixed(0)}% (
-                  {(SLOT_MINUTES * hoveredSlot.unproductivePct).toFixed(1)}m)
-                </div>
-                <div>
-                  Idle {(hoveredSlot.idlePct * 100).toFixed(0)}% (
-                  {(SLOT_MINUTES * hoveredSlot.idlePct).toFixed(1)}m)
+                {hoveredSlotFractions.productivePct > 0.001 ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-sm"
+                        style={{ backgroundColor: PRODUCTIVE_COLOR }}
+                        aria-hidden
+                      />
+                      <span className="lowercase">productive</span>
+                    </span>
+                    <span className="shrink-0 text-right tabular-nums text-gray-900 dark:text-slate-100">
+                      {(hoveredSlotFractions.productivePct * 100).toFixed(0)}%
+                      <span className="text-gray-500 dark:text-slate-400">
+                        {" "}
+                        · {slotFractionToDurationLabel(
+                          hoveredSlotFractions.productivePct,
+                        )}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
+                {hoveredSlotFractions.neutralPct > 0.001 ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-sm"
+                        style={{ backgroundColor: NEUTRAL_COLOR }}
+                        aria-hidden
+                      />
+                      <span className="lowercase">neutral</span>
+                    </span>
+                    <span className="shrink-0 text-right tabular-nums text-gray-900 dark:text-slate-100">
+                      {(hoveredSlotFractions.neutralPct * 100).toFixed(0)}%
+                      <span className="text-gray-500 dark:text-slate-400">
+                        {" "}
+                        · {slotFractionToDurationLabel(
+                          hoveredSlotFractions.neutralPct,
+                        )}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
+                {hoveredSlotFractions.unproductivePct > 0.001 ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-sm"
+                        style={{ backgroundColor: UNPRODUCTIVE_COLOR }}
+                        aria-hidden
+                      />
+                      <span className="lowercase">unproductive</span>
+                    </span>
+                    <span className="shrink-0 text-right tabular-nums text-gray-900 dark:text-slate-100">
+                      {(hoveredSlotFractions.unproductivePct * 100).toFixed(0)}%
+                      <span className="text-gray-500 dark:text-slate-400">
+                        {" "}
+                        · {slotFractionToDurationLabel(
+                          hoveredSlotFractions.unproductivePct,
+                        )}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
+                {hoveredSlotFractions.idlePct > 0.001 ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-sm bg-slate-200 dark:bg-slate-600"
+                        aria-hidden
+                      />
+                      <span className="lowercase">idle</span>
+                    </span>
+                    <span className="shrink-0 text-right tabular-nums text-gray-900 dark:text-slate-100">
+                      {(hoveredSlotFractions.idlePct * 100).toFixed(0)}%
+                      <span className="text-gray-500 dark:text-slate-400">
+                        {" "}
+                        · {slotFractionToDurationLabel(hoveredSlotFractions.idlePct)}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
+                {hoveredSlot.activities && hoveredSlot.activities.length > 0 ? (
+                  <div className="mt-1.5 border-t border-gray-100 pt-1.5 dark:border-slate-700">
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-slate-500">
+                      Apps & sites
+                    </div>
+                    <ul className="grid max-h-40 gap-y-0.5 overflow-y-auto pr-0.5">
+                      {hoveredSlot.activities.map((a, idx) => (
+                        <li
+                          key={`${a.label}-${idx}`}
+                          className="grid grid-cols-[1fr_auto] items-baseline gap-x-3 gap-y-0.5"
+                        >
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span
+                              className="inline-block size-1.5 shrink-0 rounded-sm"
+                              style={{
+                                backgroundColor:
+                                  a.category === "productive"
+                                    ? PRODUCTIVE_COLOR
+                                    : a.category === "unproductive"
+                                      ? UNPRODUCTIVE_COLOR
+                                      : NEUTRAL_COLOR,
+                              }}
+                              aria-hidden
+                            />
+                            <span className="truncate">{a.label}</span>
+                          </span>
+                          <span className="shrink-0 tabular-nums text-gray-800 dark:text-slate-200">
+                            {formatDuration(Math.round(a.durationMs))}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <div className="mt-1.5 border-t border-gray-100 pt-1.5 font-semibold text-gray-900 dark:border-slate-700 dark:text-slate-100">
+                  Total: {formatDuration(hoveredSlotTotalTrackedMs)}
                 </div>
               </>
-            )}
+            ) : null}
           </div>
         </div>
       )}
@@ -748,21 +1172,18 @@ const SlotBar: React.FC<{
     );
   }
 
-  const t =
-    slot.productivePct +
-    slot.neutralPct +
-    slot.unproductivePct +
-    slot.idlePct;
-  const scale = t > 0 ? 100 / t : 0;
-  const unprodHeight = Math.round(slot.unproductivePct * scale);
-  const neutralHeight = Math.round(slot.neutralPct * scale);
-  const prodHeight = Math.round(slot.productivePct * scale);
-  const idleHeight = Math.max(0, Math.round(slot.idlePct * scale));
+  const {
+    productivePct: p,
+    neutralPct: n,
+    unproductivePct: u,
+    idlePct: i,
+    remainderPct: remainder,
+  } = getSlotFractions(slot);
 
   return (
     <div
       className={cn(
-        "relative flex h-32 touch-none flex-col justify-end overflow-hidden rounded-t-[2px] border border-transparent",
+        "relative flex h-32 touch-none flex-col overflow-hidden rounded-t-[2px] border border-transparent",
         enableOfflineDrag && eligible && "cursor-grab active:cursor-grabbing",
         selected && eligible && "border-emerald-500 ring-1 ring-emerald-400"
       )}
@@ -776,40 +1197,52 @@ const SlotBar: React.FC<{
         onDragPointerDown(index);
       }}
     >
-      {unprodHeight > 0 && (
+      {/* Top: portion of slot with no recorded activity (same look as idle/untracked) */}
+      {remainder > 0.001 && (
         <div
-          className="w-full flex-shrink-0"
-          style={{
-            height: `${unprodHeight}%`,
-            backgroundColor: UNPRODUCTIVE_COLOR,
-          }}
+          className={cn("w-full min-h-0", IDLE_UNTRACKED_BAR_CLASS)}
+          style={{ flexGrow: remainder, flexShrink: 0, flexBasis: 0 }}
+          title="No activity in this part of the 5‑minute slot"
         />
       )}
-      {neutralHeight > 0 && (
+      {/* Stack fills rest: idle, then categories toward bottom (unproductive at baseline) */}
+      {i > 0.001 && (
         <div
-          className="w-full flex-shrink-0"
-          style={{
-            height: `${neutralHeight}%`,
-            backgroundColor: NEUTRAL_COLOR,
-          }}
+          className={cn("w-full min-h-0", IDLE_UNTRACKED_BAR_CLASS)}
+          style={{ flexGrow: i, flexShrink: 0, flexBasis: 0 }}
         />
       )}
-      {prodHeight > 0 && (
+      {p > 0.001 && (
         <div
-          className="w-full flex-shrink-0"
+          className="w-full min-h-0 flex-shrink-0"
           style={{
-            height: `${prodHeight}%`,
+            flexGrow: p,
+            flexShrink: 0,
+            flexBasis: 0,
             backgroundColor: PRODUCTIVE_COLOR,
           }}
         />
       )}
-      {idleHeight > 0 && (
+      {n > 0.001 && (
         <div
-          className={cn(
-            "w-full flex-shrink-0",
-            IDLE_UNTRACKED_BAR_CLASS
-          )}
-          style={{ height: `${idleHeight}%` }}
+          className="w-full min-h-0 flex-shrink-0"
+          style={{
+            flexGrow: n,
+            flexShrink: 0,
+            flexBasis: 0,
+            backgroundColor: NEUTRAL_COLOR,
+          }}
+        />
+      )}
+      {u > 0.001 && (
+        <div
+          className="w-full min-h-0 flex-shrink-0"
+          style={{
+            flexGrow: u,
+            flexShrink: 0,
+            flexBasis: 0,
+            backgroundColor: UNPRODUCTIVE_COLOR,
+          }}
         />
       )}
       {pendingOverlay ? (

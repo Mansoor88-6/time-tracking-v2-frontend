@@ -10,6 +10,14 @@ export interface TimelineSlotResponse {
   idlePct: number;
   idleMs: number;
   online: boolean;
+  activities?: {
+    label: string;
+    durationMs: number;
+    category: "productive" | "neutral" | "unproductive";
+  }[];
+  activeIntervalsUtc?: { start: string; end: string }[];
+  idleIntervalsUtc?: { start: string; end: string }[];
+  remainderIntervalsUtc?: { start: string; end: string }[];
 }
 
 export interface TimelineParams {
@@ -48,6 +56,10 @@ export async function fetchTimelineSlots(
     idlePct: slot.idlePct ?? 0,
     idleMs: slot.idleMs ?? 0,
     online: slot.online,
+    activities: slot.activities,
+    activeIntervalsUtc: slot.activeIntervalsUtc,
+    idleIntervalsUtc: slot.idleIntervalsUtc,
+    remainderIntervalsUtc: slot.remainderIntervalsUtc,
   }));
 }
 

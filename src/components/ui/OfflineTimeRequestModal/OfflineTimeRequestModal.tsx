@@ -349,7 +349,8 @@ export function OfflineTimeRequestModal({
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
           Adjust the range on the timeline (or type below). You can only request
-          time inside your selection and outside already tracked activity.
+          time inside your selection and outside already tracked activity
+          (hatched regions are active work — not claimable).
         </p>
 
         {allowed.length === 0 ? (

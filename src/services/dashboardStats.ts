@@ -17,34 +17,33 @@ export interface DashboardStatsResponse {
 }
 
 /**
- * Format milliseconds to human-readable duration
- * Examples: "36s", "10m", "3h 24m", "1h 5m"
+ * Format milliseconds to human-readable duration (avoids flooring away seconds under 1h).
+ * Examples: "36s", "4m 19s", "10m", "3h 24m", "1h 5m 3s"
  */
 export function formatDuration(ms: number): string {
   if (ms < 0) return "0s";
-  
+
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  
-  // If less than 1 minute, show seconds
+
   if (hours === 0 && minutes === 0) {
     return `${seconds}s`;
   }
-  
-  // If less than 1 hour, show minutes only
+
   if (hours === 0) {
-    return `${minutes}m`;
+    if (seconds === 0) return `${minutes}m`;
+    return `${minutes}m ${seconds}s`;
   }
-  
-  // If hours but no minutes, show hours only
-  if (minutes === 0) {
+
+  if (minutes === 0 && seconds === 0) {
     return `${hours}h`;
   }
-  
-  // Show hours and minutes
-  return `${hours}h ${minutes}m`;
+  if (seconds === 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${hours}h ${minutes}m ${seconds}s`;
 }
 
 /**
