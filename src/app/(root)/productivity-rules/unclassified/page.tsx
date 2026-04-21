@@ -179,9 +179,13 @@ const UnclassifiedAppsPage = () => {
         console.error(`Failed to classify ${app.appName}:`, err);
       }
     }
-    toast.success(
-      `Classified ${successCount} of ${appsToClassify.length} app(s) and added to collection`
-    );
+    if (successCount === 0) {
+      toast.error("Couldn't classify selected apps. Please check collection/team mapping and try again.");
+    } else {
+      toast.success(
+        `Classified ${successCount} of ${appsToClassify.length} app(s) and added to collection`
+      );
+    }
     setSelectedApps([]);
     setIsBulkAddModalOpen(false);
     resetBulkAdd();
@@ -210,9 +214,13 @@ const UnclassifiedAppsPage = () => {
         console.error(`Failed to classify ${app.appName}:`, err);
       }
     }
-    toast.success(
-      `Added ${successCount} of ${appsToAdd.length} app(s) to collection and classified`
-    );
+    if (successCount === 0) {
+      toast.error("Couldn't add selected apps to collection. Please try again.");
+    } else {
+      toast.success(
+        `Added ${successCount} of ${appsToAdd.length} app(s) to collection and classified`
+      );
+    }
     setSelectedApps([]);
     setIsBulkAddModalOpen(false);
     resetBulkAdd();

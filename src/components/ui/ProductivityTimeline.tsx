@@ -1,14 +1,20 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
 import { OfflineTimeRequestModal } from "@/components/ui/OfflineTimeRequestModal";
 import { formatDuration } from "@/services/dashboardStats";
-import { mergeMsIntervals, type MsInterval } from "@/utils/timeline-intervals";
 import {
-  msRangeToSlotIndices,
-  msToTrackSpanPx,
-} from "@/utils/timeline-geometry";
+  computeClaimableIntervalsIso,
+  getPendingRangeMs,
+  getSlotFractions,
+  mergeBlockedIntervalsIsoForWindow,
+  slotRangeToIsoBounds,
+  TIMELINE_SLOT_MS,
+} from "@/utils/offline-claim";
 import { cn } from "@/utils/tw";
+
+export { computeBlockedIntervalsFromSlots, getSlotFractions } from "@/utils/offline-claim";
 
 /**
  * Represents a single 5-minute time slot in the productivity timeline.
@@ -56,10 +62,9 @@ export interface ProductivityTimelineProps {
    * a realistic mock workday using two sessions similar to Desktime's demo.
    */
   slots?: TimeSlotData[];
-  /** When set, user can drag-select idle ranges and submit an offline-time request. */
+  /** When set, user can drag-select a range and submit offline-time request(s) for claimable segments. */
   onOfflineTimeSubmit?: (payload: {
-    startAt: string;
-    endAt: string;
+    segments: { startAt: string; endAt: string }[];
     description: string;
     category: "productive" | "neutral" | "unproductive";
   }) => Promise<void>;
@@ -186,25 +191,7 @@ function generateMockSlots(): TimeSlotData[] {
 
 const hourLabels = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24];
 
-function slotRangeToIsoBounds(slots: TimeSlotData[], lo: number, hi: number) {
-  const first = slots[lo];
-  const last = slots[hi];
-  const dayBase = new Date();
-  dayBase.setHours(0, 0, 0, 0);
-  const startMs = first.slotStartUtc
-    ? new Date(first.slotStartUtc).getTime()
-    : dayBase.getTime() + first.startMinute * 60 * 1000;
-  const lastSlotStart = last.slotStartUtc
-    ? new Date(last.slotStartUtc).getTime()
-    : dayBase.getTime() + last.startMinute * 60 * 1000;
-  const endMs = lastSlotStart + SLOT_MINUTES * 60 * 1000;
-  return {
-    startIso: new Date(startMs).toISOString(),
-    endIso: new Date(endMs).toISOString(),
-  };
-}
-
-const SLOT_MS = SLOT_MINUTES * 60 * 1000;
+const SLOT_MS = TIMELINE_SLOT_MS;
 
 /** Rounds to nearest ms so tooltip/Y-axis match wall-clock slot math. */
 function slotFractionToDurationLabel(pct: number): string {
@@ -214,224 +201,6 @@ function slotFractionToDurationLabel(pct: number): string {
 const TIMELINE_Y_AXIS_TICKS: string[] = [1, 0.75, 0.5, 0.25, 0].map((f) =>
   f === 0 ? "" : formatDuration(Math.round(SLOT_MS * f)),
 );
-
-/** Aligns with SlotBar: fractions of the 5‑min slot, capped when sum > 1, remainder = untracked. */
-export function getSlotFractions(slot: TimeSlotData): {
-  productivePct: number;
-  neutralPct: number;
-  unproductivePct: number;
-  idlePct: number;
-  remainderPct: number;
-} {
-  let p = Math.max(0, slot.productivePct);
-  let n = Math.max(0, slot.neutralPct);
-  let u = Math.max(0, slot.unproductivePct);
-  let i = Math.max(0, slot.idlePct);
-  const sum = p + n + u + i;
-  if (sum > 1 && sum > 0) {
-    p /= sum;
-    n /= sum;
-    u /= sum;
-    i /= sum;
-  }
-  const remainderPct = Math.max(0, 1 - p - n - u - i);
-  return { productivePct: p, neutralPct: n, unproductivePct: u, idlePct: i, remainderPct };
-}
-
-/** Support camelCase or snake_case from API serialization. */
-function getPendingRangeMs(r: {
-  startAt: string;
-  endAt: string;
-}): { rs: number; re: number } | null {
-  const raw = r as {
-    startAt?: string;
-    endAt?: string;
-    start_at?: string;
-    end_at?: string;
-  };
-  const s = raw.startAt ?? raw.start_at;
-  const e = raw.endAt ?? raw.end_at;
-  if (!s || !e) return null;
-  const rs = new Date(s).getTime();
-  const re = new Date(e).getTime();
-  if (Number.isNaN(rs) || Number.isNaN(re)) return null;
-  return { rs, re };
-}
-
-/**
- * Untracked gaps, tracked slots with idle, and not overlapping an existing pending request.
- */
-function slotEligibleForOfflineRequest(
-  slot: TimeSlotData,
-  pendingRanges: { startAt: string; endAt: string }[]
-): boolean {
-  const { remainderPct } = getSlotFractions(slot);
-  const baseIdle =
-    !slot.online || slot.idleMs > 0 || remainderPct > 0.001;
-  if (!baseIdle) return false;
-  if (!pendingRanges.length) return true;
-  if (!slot.slotStartUtc) return true;
-  const slotStart = new Date(slot.slotStartUtc).getTime();
-  const slotEnd = slotStart + SLOT_MS;
-  if (Number.isNaN(slotStart)) return true;
-  for (const r of pendingRanges) {
-    const b = getPendingRangeMs(r);
-    if (!b) continue;
-    if (slotStart < b.re && slotEnd > b.rs) return false;
-  }
-  return true;
-}
-
-function rangeHasOnlyOfflineEligibleSlots(
-  slots: TimeSlotData[],
-  lo: number,
-  hi: number,
-  pendingRanges: { startAt: string; endAt: string }[]
-): boolean {
-  for (let i = lo; i <= hi; i++) {
-    if (!slots[i] || !slotEligibleForOfflineRequest(slots[i], pendingRanges)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function hasWallClockIntervalFields(slot: TimeSlotData): boolean {
-  return (
-    slot.activeIntervalsUtc !== undefined &&
-    slot.idleIntervalsUtc !== undefined &&
-    slot.remainderIntervalsUtc !== undefined
-  );
-}
-
-/**
- * Tracked productive+neutral+unproductive wall time (blocked in offline modal).
- * When all slots expose worker wall-clock intervals, merges those active intervals.
- * Otherwise uses legacy per-slot prefix of (p+n+u) only — idle is claimable.
- */
-export function computeBlockedIntervalsFromSlots(
-  slots: TimeSlotData[],
-  lo: number,
-  hi: number
-): { start: string; end: string }[] {
-  const slice = slots.slice(lo, hi + 1);
-  const useWallClock = slice.length > 0 && slice.every(hasWallClockIntervalFields);
-
-  if (useWallClock) {
-    const raw: MsInterval[] = [];
-    for (const s of slice) {
-      for (const iv of s.activeIntervalsUtc ?? []) {
-        const a = new Date(iv.start).getTime();
-        const b = new Date(iv.end).getTime();
-        if (!Number.isNaN(a) && !Number.isNaN(b) && b > a) {
-          raw.push({ startMs: a, endMs: b });
-        }
-      }
-    }
-    return mergeMsIntervals(raw).map(({ startMs, endMs }) => ({
-      start: new Date(startMs).toISOString(),
-      end: new Date(endMs).toISOString(),
-    }));
-  }
-
-  const rawLegacy: MsInterval[] = [];
-  for (let i = lo; i <= hi; i++) {
-    const s = slots[i];
-    if (!s?.slotStartUtc) continue;
-    const slotStart = new Date(s.slotStartUtc).getTime();
-    if (!s.online) continue;
-    const { productivePct, neutralPct, unproductivePct } = getSlotFractions(s);
-    const blockedMs = Math.min(
-      SLOT_MS,
-      (productivePct + neutralPct + unproductivePct) * SLOT_MS,
-    );
-    if (blockedMs <= 0) continue;
-    rawLegacy.push({ startMs: slotStart, endMs: slotStart + blockedMs });
-  }
-  return mergeMsIntervals(rawLegacy).map(({ startMs, endMs }) => ({
-    start: new Date(startMs).toISOString(),
-    end: new Date(endMs).toISOString(),
-  }));
-}
-
-const SESSION_BLUE_DARK = "#1e3a8a";
-const SESSION_BLUE_LIGHT = "#3b82f6";
-
-function intervalOverlapsPending(
-  startMs: number,
-  endMs: number,
-  pendingRanges: { startAt: string; endAt: string }[],
-): boolean {
-  for (const r of pendingRanges) {
-    const b = getPendingRangeMs(r);
-    if (!b) continue;
-    if (startMs < b.re && endMs > b.rs) return true;
-  }
-  return false;
-}
-
-function computeContiguousRunsByPredicate(
-  slots: TimeSlotData[],
-  pred: (s: TimeSlotData) => boolean,
-): { lo: number; hi: number }[] {
-  const runs: { lo: number; hi: number }[] = [];
-  let i = 0;
-  while (i < slots.length) {
-    while (i < slots.length && !pred(slots[i])) i++;
-    if (i >= slots.length) break;
-    const lo = i;
-    while (i < slots.length && pred(slots[i])) i++;
-    runs.push({ lo, hi: i - 1 });
-  }
-  return runs;
-}
-
-function slotIndexRunToPx(
-  lo: number,
-  hi: number,
-  barW: number,
-  gap: number,
-): { left: number; width: number } {
-  const left = lo * (barW + gap);
-  const width = (hi - lo + 1) * barW + (hi - lo) * gap;
-  return { left, width };
-}
-
-/**
- * Builds claimable bottom-track segments from contiguous eligible slot runs.
- * This keeps idle and untracked time visually unified while the offline modal
- * still uses precise blocked intervals to exclude active time inside the range.
- */
-function buildClaimableIdleSegments(
-  slots: TimeSlotData[],
-  pendingRanges: { startAt: string; endAt: string }[],
-): MsInterval[] {
-  if (!slots.length) return [];
-  const eligibleRuns = computeContiguousRunsByPredicate(
-    slots,
-    (slot) => slotEligibleForOfflineRequest(slot, pendingRanges),
-  );
-
-  return eligibleRuns
-    .map((run) => {
-      const first = slots[run.lo];
-      const last = slots[run.hi];
-      if (!first?.slotStartUtc || !last?.slotStartUtc) return null;
-
-      const startMs = new Date(first.slotStartUtc).getTime();
-      const lastStartMs = new Date(last.slotStartUtc).getTime();
-      if (Number.isNaN(startMs) || Number.isNaN(lastStartMs)) return null;
-
-      return {
-        startMs,
-        endMs: lastStartMs + SLOT_MS,
-      };
-    })
-    .filter((seg): seg is MsInterval => seg !== null)
-    .filter(
-      (seg) => !intervalOverlapsPending(seg.startMs, seg.endMs, pendingRanges),
-    );
-}
 
 export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
   slots,
@@ -480,13 +249,20 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
     return {
       selectionStartIso: bounds.startIso,
       selectionEndIso: bounds.endIso,
-      blockedIntervalsIso: computeBlockedIntervalsFromSlots(
+      blockedIntervalsIso: mergeBlockedIntervalsIsoForWindow(
         resolvedSlots,
         lo,
-        hi
+        hi,
+        pendingOfflineRanges,
+      ),
+      claimableSegmentsIso: computeClaimableIntervalsIso(
+        resolvedSlots,
+        lo,
+        hi,
+        pendingOfflineRanges,
       ),
     };
-  }, [offlineModalRange, resolvedSlots]);
+  }, [offlineModalRange, resolvedSlots, pendingOfflineRanges]);
 
   const selectionLo =
     dragAnchor !== null && dragCurrent !== null
@@ -609,17 +385,18 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       if (!d || !onOfflineTimeSubmit) return;
       const lo = Math.min(d.anchor, d.current);
       const hi = Math.max(d.anchor, d.current);
-      if (
-        rangeHasOnlyOfflineEligibleSlots(
-          resolvedSlots,
-          lo,
-          hi,
-          pendingOfflineRanges
-        )
-      ) {
-        setOfflineModalRange({ lo, hi });
-        setOfflineModalOpen(true);
+      const claimable = computeClaimableIntervalsIso(
+        resolvedSlots,
+        lo,
+        hi,
+        pendingOfflineRanges,
+      );
+      if (claimable.length === 0) {
+        toast.error("No claimable idle or untracked time in this selection.");
+        return;
       }
+      setOfflineModalRange({ lo, hi });
+      setOfflineModalOpen(true);
     };
 
     window.addEventListener("pointermove", onMove);
@@ -628,13 +405,7 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [
-    dragAnchor,
-    onOfflineTimeSubmit,
-    resolvedSlots,
-    clientXToSlotIndex,
-    pendingOfflineRanges,
-  ]);
+  }, [dragAnchor, onOfflineTimeSubmit, resolvedSlots, clientXToSlotIndex, pendingOfflineRanges]);
 
   const yTicks = TIMELINE_Y_AXIS_TICKS;
 
@@ -643,24 +414,6 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
     slotCount > 0
       ? slotCount * (SLOT_BAR_WIDTH_PX + SLOT_BAR_GAP_PX) - SLOT_BAR_GAP_PX
       : 0;
-
-  const deskTimeBottomTrack = useMemo(() => {
-    const slots = resolvedSlots;
-    if (!slots.length) return null;
-    const offlineRuns = computeContiguousRunsByPredicate(
-      slots,
-      (s) => !s.online,
-    );
-    const onlineRuns = computeContiguousRunsByPredicate(
-      slots,
-      (s) => !!s.online,
-    );
-    const claimableSegments = buildClaimableIdleSegments(
-      slots,
-      pendingOfflineRanges,
-    );
-    return { offlineRuns, onlineRuns, claimableSegments };
-  }, [resolvedSlots, pendingOfflineRanges]);
 
   return (
     <div className="space-y-3">
@@ -676,13 +429,6 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
           dotClassName={IDLE_UNTRACKED_BAR_CLASS}
           label="Idle / untracked"
         />
-        <LegendDot color={SESSION_BLUE_DARK} label="Session (bottom)" />
-        {onOfflineTimeSubmit ? (
-          <LegendDot
-            dotClassName="border border-dashed border-slate-400 bg-white dark:bg-slate-900"
-            label="Claimable idle (click)"
-          />
-        ) : null}
         <span className="text-[11px] text-slate-400 dark:text-slate-500">
           Each column = {SLOT_MINUTES} min clock; stack height matches time in that window.
         </span>
@@ -695,12 +441,10 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       </div>
       {onOfflineTimeSubmit ? (
         <p className="text-xs text-slate-500">
-          Drag across <span className="font-medium text-slate-700">idle</span>{" "}
-          time or <span className="font-medium text-slate-700">untracked</span>{" "}
-          gaps, or click a white dashed segment in the bottom track to request
-          offline time for that idle/untracked span. Sky blue slots already have
-          a pending request and cannot be selected again until approved or
-          declined.
+          Drag across any part of the timeline to select a range. Claimable time
+          (idle or untracked, not active work) appears in the request dialog,
+          where you can exclude segments before submitting. Sky blue slots
+          already have a pending request overlapping that time.
         </p>
       ) : null}
 
@@ -748,20 +492,12 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
                     index <= selectionHi
                   }
                   pendingOverlay={pendingSlotIndexSet.has(index)}
-                  eligible={slotEligibleForOfflineRequest(
-                    slot,
-                    pendingOfflineRanges
-                  )}
                   enableOfflineDrag={!!onOfflineTimeSubmit}
                   onHover={handleBarHover}
                   onHoverMove={handleBarMove}
                   onLeave={handleBarLeave}
                   onDragPointerDown={(idx) => {
-                    if (
-                      !onOfflineTimeSubmit ||
-                      !slotEligibleForOfflineRequest(slot, pendingOfflineRanges)
-                    )
-                      return;
+                    if (!onOfflineTimeSubmit) return;
                     dragRef.current = { anchor: idx, current: idx };
                     setDragAnchor(idx);
                     setDragCurrent(idx);
@@ -770,98 +506,6 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
               ))}
             </div>
           </div>
-
-            {/* DeskTime-style summary track: offline gaps, sessions, claimable idle */}
-            <div
-              className="relative mt-0.5 h-3 select-none"
-              style={{ minWidth: barTrackMinWidth }}
-            >
-              {/* Lane background so untracked gaps are visible (DeskTime-style dashed band) */}
-              <div className="pointer-events-none absolute inset-0 z-0 rounded bg-slate-200/70 dark:bg-slate-800/70" />
-              <div className="pointer-events-none absolute inset-0 z-[1] rounded border border-dashed border-slate-400/80 dark:border-slate-500" />
-              <div className="pointer-events-none absolute inset-0 z-[2]">
-                {deskTimeBottomTrack?.offlineRuns.map((run) => {
-                  const { left, width } = slotIndexRunToPx(
-                    run.lo,
-                    run.hi,
-                    SLOT_BAR_WIDTH_PX,
-                    SLOT_BAR_GAP_PX,
-                  );
-                  return (
-                    <div
-                      key={`off-${run.lo}-${run.hi}`}
-                      className="absolute top-0 h-full rounded-sm bg-slate-300/90 dark:bg-slate-700/85"
-                      style={{ left, width }}
-                    />
-                  );
-                })}
-                {deskTimeBottomTrack?.onlineRuns.map((run, si) => {
-                  const { left, width } = slotIndexRunToPx(
-                    run.lo,
-                    run.hi,
-                    SLOT_BAR_WIDTH_PX,
-                    SLOT_BAR_GAP_PX,
-                  );
-                  const bg = si % 2 === 0 ? SESSION_BLUE_DARK : SESSION_BLUE_LIGHT;
-                  return (
-                    <div
-                      key={`on-${run.lo}-${run.hi}`}
-                      className="absolute top-0 h-full rounded-sm opacity-90"
-                      style={{ left, width, backgroundColor: bg }}
-                    />
-                  );
-                })}
-              </div>
-              {onOfflineTimeSubmit &&
-              deskTimeBottomTrack &&
-              deskTimeBottomTrack.claimableSegments.length > 0 ? (
-                <div className="absolute inset-0 z-[5]">
-                  {deskTimeBottomTrack.claimableSegments.map((seg, i) => {
-                    const { left, width } = msToTrackSpanPx(
-                      seg.startMs,
-                      seg.endMs,
-                      resolvedSlots,
-                      SLOT_MS,
-                      SLOT_BAR_WIDTH_PX,
-                      SLOT_BAR_GAP_PX,
-                    );
-                    const minW = Math.max(width, 4);
-                    const totalMs = seg.endMs - seg.startMs;
-                    return (
-                      <button
-                        key={`claim-${seg.startMs}-${seg.endMs}-${i}`}
-                        type="button"
-                        title={`Claimable: ${formatDuration(totalMs)} — click to request offline time`}
-                        className="absolute top-0 h-full cursor-pointer rounded-sm border border-dashed border-sky-300/90 bg-white/95 shadow-sm ring-1 ring-slate-300/60 hover:bg-white dark:border-sky-500/70 dark:bg-slate-950/95 dark:ring-slate-600 dark:hover:bg-slate-900"
-                        style={{ left, width: minW }}
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const idx = msRangeToSlotIndices(
-                            seg.startMs,
-                            seg.endMs,
-                            resolvedSlots,
-                            SLOT_MS,
-                          );
-                          if (!idx) return;
-                          if (
-                            !rangeHasOnlyOfflineEligibleSlots(
-                              resolvedSlots,
-                              idx.lo,
-                              idx.hi,
-                              pendingOfflineRanges,
-                            )
-                          )
-                            return;
-                          setOfflineModalRange({ lo: idx.lo, hi: idx.hi });
-                          setOfflineModalOpen(true);
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
 
             {/* X axis labels */}
             <div className="relative mt-1 h-4 text-xs text-slate-400 dark:text-slate-500">
@@ -1083,7 +727,6 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
             setOfflineModalRange(null);
           }}
           {...offlineModalConstraints}
-          pendingOfflineRangesIso={pendingOfflineRanges}
           isSubmitting={offlineSubmitting}
           onSubmit={async (payload) => {
             setOfflineSubmitting(true);
@@ -1121,7 +764,6 @@ const SlotBar: React.FC<{
   barWidthPx: number;
   selected: boolean;
   pendingOverlay?: boolean;
-  eligible: boolean;
   enableOfflineDrag: boolean;
   onHover: (slot: TimeSlotData, element: HTMLElement, index: number) => void;
   onHoverMove: (element: HTMLElement) => void;
@@ -1133,7 +775,6 @@ const SlotBar: React.FC<{
   barWidthPx,
   selected,
   pendingOverlay = false,
-  eligible,
   enableOfflineDrag,
   onHover,
   onHoverMove,
@@ -1148,15 +789,15 @@ const SlotBar: React.FC<{
         className={cn(
           "relative h-32 flex-col rounded-t-[2px] border border-transparent",
           "bg-slate-100/70 dark:bg-slate-800/60",
-          enableOfflineDrag && eligible && "cursor-grab active:cursor-grabbing",
-          selected && eligible && "border-emerald-500 ring-1 ring-emerald-400"
+          enableOfflineDrag && "cursor-grab active:cursor-grabbing",
+          selected && enableOfflineDrag && "border-emerald-500 ring-1 ring-emerald-400"
         )}
         style={barStyle}
         onMouseEnter={(e) => onHover(slot, e.currentTarget, index)}
         onMouseMove={(e) => onHoverMove(e.currentTarget)}
         onMouseLeave={onLeave}
         onPointerDown={(e) => {
-          if (!enableOfflineDrag || !eligible) return;
+          if (!enableOfflineDrag) return;
           e.preventDefault();
           onDragPointerDown(index);
         }}
@@ -1184,15 +825,15 @@ const SlotBar: React.FC<{
     <div
       className={cn(
         "relative flex h-32 touch-none flex-col overflow-hidden rounded-t-[2px] border border-transparent",
-        enableOfflineDrag && eligible && "cursor-grab active:cursor-grabbing",
-        selected && eligible && "border-emerald-500 ring-1 ring-emerald-400"
+        enableOfflineDrag && "cursor-grab active:cursor-grabbing",
+        selected && enableOfflineDrag && "border-emerald-500 ring-1 ring-emerald-400"
       )}
       style={barStyle}
       onMouseEnter={(e) => onHover(slot, e.currentTarget, index)}
       onMouseMove={(e) => onHoverMove(e.currentTarget)}
       onMouseLeave={onLeave}
       onPointerDown={(e) => {
-        if (!enableOfflineDrag || !eligible) return;
+        if (!enableOfflineDrag) return;
         e.preventDefault();
         onDragPointerDown(index);
       }}

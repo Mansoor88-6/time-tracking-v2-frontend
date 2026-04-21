@@ -12,6 +12,8 @@ export interface OfflineTimeRequestDto {
   endAt: string;
   description: string;
   category: OfflineTimeCategory;
+  /** Present when created as part of one multi-segment submit from the timeline. */
+  submitBatchId?: string | null;
   status: OfflineTimeRequestStatus;
   reviewedByUserId: number | null;
   reviewedAt: string | null;
@@ -25,6 +27,7 @@ export async function createOfflineTimeRequest(body: {
   endAt: string;
   description: string;
   category: OfflineTimeCategory;
+  submitBatchId?: string;
 }): Promise<OfflineTimeRequestDto> {
   return apiClient<OfflineTimeRequestDto>("/api/v1/offline-time-requests", {
     method: "POST",

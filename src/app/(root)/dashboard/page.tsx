@@ -476,24 +476,38 @@ const OrgDashboardPage = () => {
   const appUsage = transformAppUsage(appUsageData);
 
   const handleOfflineTimeSubmit = async (payload: {
-    startAt: string;
-    endAt: string;
+    segments: { startAt: string; endAt: string }[];
     description: string;
     category: "productive" | "neutral" | "unproductive";
   }) => {
     try {
-      const created = await createOfflineTimeRequest(payload);
-      toast.success("Offline time request submitted for admin review.");
+      const submitBatchId =
+        payload.segments.length > 1 ? crypto.randomUUID() : undefined;
+      const createdList: OfflineTimeRequestDto[] = [];
+      for (const seg of payload.segments) {
+        const created = await createOfflineTimeRequest({
+          startAt: seg.startAt,
+          endAt: seg.endAt,
+          description: payload.description,
+          category: payload.category,
+          ...(submitBatchId ? { submitBatchId } : {}),
+        });
+        createdList.push(created);
+      }
+
+      toast.success(
+        createdList.length === 1
+          ? "Offline time request submitted for admin review."
+          : `Offline time request submitted for admin review (${createdList.length} segments).`,
+      );
 
       queryClient.setQueryData<OfflineTimeRequestDto[]>(
         ["offline-time-requests", "mine", "pending"],
         (old) => {
           const list = old ?? [];
-          if (list.some((r) => r.id === created.id)) {
-            return list.map((r) => (r.id === created.id ? created : r));
-          }
-          return [created, ...list];
-        }
+          const newIds = new Set(createdList.map((c) => c.id));
+          return [...createdList, ...list.filter((r) => !newIds.has(r.id))];
+        },
       );
 
       await queryClient.invalidateQueries({ queryKey: ["timeline"] });

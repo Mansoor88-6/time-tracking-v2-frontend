@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import Modal from "../Modal/Modal";
 import type { OfflineTimeCategory } from "@/services/offlineTimeRequests";
+import { formatDuration } from "@/services/dashboardStats";
 
 export interface OfflineTimeRequestModalProps {
   isOpen: boolean;
@@ -11,13 +12,12 @@ export interface OfflineTimeRequestModalProps {
   /** Outer bounds from timeline drag (whole 5‑minute slots). */
   selectionStartIso: string;
   selectionEndIso: string;
-  /** Tracked (non-idle) wall-clock within the selection — not claimable. */
+  /** Active work + pending offline — hatched on rail (not claimable). */
   blockedIntervalsIso: { start: string; end: string }[];
-  /** Other pending offline requests — overlapping submit is blocked. */
-  pendingOfflineRangesIso?: { startAt: string; endAt: string }[];
+  /** Claimable segments inside the selection (user can trim or exclude). */
+  claimableSegmentsIso: { start: string; end: string }[];
   onSubmit: (payload: {
-    startAt: string;
-    endAt: string;
+    segments: { startAt: string; endAt: string }[];
     description: string;
     category: OfflineTimeCategory;
   }) => Promise<void>;
@@ -26,7 +26,15 @@ export interface OfflineTimeRequestModalProps {
 
 type MsInterval = { startMs: number; endMs: number };
 
-const MIN_SEGMENT_MS = 60 * 1000;
+/**
+ * Minimum duration of a submittable segment. Kept small because worker data can
+ * fragment idle time into short contiguous pieces (each app switch restarts the
+ * active→idle ordering inside the slot).
+ */
+const MIN_SEGMENT_MS = 1000;
+
+/** Minimum gap between start and end handles in single-segment mode (UX only). */
+const HANDLE_MIN_GAP_MS = 60 * 1000;
 
 function mergeIntervals(intervals: MsInterval[]): MsInterval[] {
   if (intervals.length === 0) return [];
@@ -43,30 +51,6 @@ function mergeIntervals(intervals: MsInterval[]): MsInterval[] {
   return out;
 }
 
-function subtractBlocked(
-  winStart: number,
-  winEnd: number,
-  blocked: MsInterval[]
-): MsInterval[] {
-  let cur: MsInterval[] = [{ startMs: winStart, endMs: winEnd }];
-  for (const b of blocked) {
-    const bi = Math.max(b.startMs, winStart);
-    const bo = Math.min(b.endMs, winEnd);
-    if (bi >= bo) continue;
-    cur = cur.flatMap((c) => {
-      const next: MsInterval[] = [];
-      if (c.startMs < bi) {
-        next.push({ startMs: c.startMs, endMs: Math.min(c.endMs, bi) });
-      }
-      if (bo < c.endMs) {
-        next.push({ startMs: Math.max(c.startMs, bo), endMs: c.endMs });
-      }
-      return next;
-    }).filter((x) => x.endMs - x.startMs >= 1);
-  }
-  return cur.sort((a, b) => a.startMs - b.startMs);
-}
-
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(Math.max(n, lo), hi);
 }
@@ -74,7 +58,7 @@ function clamp(n: number, lo: number, hi: number): number {
 function defaultStartEnd(
   allowed: MsInterval[],
   winStart: number,
-  winEnd: number
+  winEnd: number,
 ): MsInterval {
   let best: MsInterval | null = null;
   for (const I of allowed) {
@@ -95,23 +79,29 @@ function defaultStartEnd(
 function isValidSegment(
   startMs: number,
   endMs: number,
-  allowed: MsInterval[]
+  allowed: MsInterval[],
 ): boolean {
   if (endMs - startMs < MIN_SEGMENT_MS) return false;
   return allowed.some(
-    (I) => startMs >= I.startMs && endMs <= I.endMs && startMs < endMs
+    (I) => startMs >= I.startMs && endMs <= I.endMs && startMs < endMs,
   );
+}
+
+/** Returns the smaller of HANDLE_MIN_GAP_MS or the allowed segment size − 1ms. */
+function handleMinGapWithin(span: number): number {
+  return Math.max(1, Math.min(HANDLE_MIN_GAP_MS, span - 1));
 }
 
 function clampStartGivenEnd(
   start: number,
   end: number,
-  allowed: MsInterval[]
+  allowed: MsInterval[],
 ): number {
   for (const I of allowed) {
     if (end <= I.startMs || end > I.endMs) continue;
+    const gap = handleMinGapWithin(I.endMs - I.startMs);
     const lo = I.startMs;
-    const hi = Math.min(end - MIN_SEGMENT_MS, I.endMs - MIN_SEGMENT_MS);
+    const hi = Math.min(end - gap, I.endMs - gap);
     if (lo <= hi) return clamp(start, lo, hi);
   }
   return start;
@@ -120,11 +110,12 @@ function clampStartGivenEnd(
 function clampEndGivenStart(
   start: number,
   end: number,
-  allowed: MsInterval[]
+  allowed: MsInterval[],
 ): number {
   for (const I of allowed) {
     if (start < I.startMs || start >= I.endMs) continue;
-    const lo = Math.max(start + MIN_SEGMENT_MS, I.startMs);
+    const gap = handleMinGapWithin(I.endMs - I.startMs);
+    const lo = Math.max(start + gap, I.startMs);
     const hi = I.endMs;
     if (lo <= hi) return clamp(end, lo, hi);
   }
@@ -160,36 +151,13 @@ function isSameLocalCalendarDay(a: number, b: number): boolean {
   );
 }
 
-function newRangeOverlapsPending(
-  startMs: number,
-  endMs: number,
-  pending: { startAt: string; endAt: string }[]
-): boolean {
-  for (const r of pending) {
-    const raw = r as {
-      startAt?: string;
-      endAt?: string;
-      start_at?: string;
-      end_at?: string;
-    };
-    const s = raw.startAt ?? raw.start_at;
-    const e = raw.endAt ?? raw.end_at;
-    if (!s || !e) continue;
-    const rs = new Date(s).getTime();
-    const re = new Date(e).getTime();
-    if (Number.isNaN(rs) || Number.isNaN(re)) continue;
-    if (startMs < re && endMs > rs) return true;
-  }
-  return false;
-}
-
 export function OfflineTimeRequestModal({
   isOpen,
   onClose,
   selectionStartIso,
   selectionEndIso,
   blockedIntervalsIso,
-  pendingOfflineRangesIso = [],
+  claimableSegmentsIso,
   onSubmit,
   isSubmitting = false,
 }: OfflineTimeRequestModalProps) {
@@ -197,6 +165,7 @@ export function OfflineTimeRequestModal({
   const [endMs, setEndMs] = useState(0);
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<OfflineTimeCategory>("productive");
+  const [included, setIncluded] = useState<boolean[]>([]);
 
   const railRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<"start" | "end" | null>(null);
@@ -209,11 +178,11 @@ export function OfflineTimeRequestModal({
 
   const winStart = useMemo(
     () => new Date(selectionStartIso).getTime(),
-    [selectionStartIso]
+    [selectionStartIso],
   );
   const winEnd = useMemo(
     () => new Date(selectionEndIso).getTime(),
-    [selectionEndIso]
+    [selectionEndIso],
   );
 
   const blockedMs = useMemo(() => {
@@ -221,36 +190,59 @@ export function OfflineTimeRequestModal({
       blockedIntervalsIso.map((b) => ({
         startMs: new Date(b.start).getTime(),
         endMs: new Date(b.end).getTime(),
-      }))
+      })),
     );
   }, [blockedIntervalsIso]);
 
-  const allowed = useMemo(() => {
-    if (Number.isNaN(winStart) || Number.isNaN(winEnd) || winEnd <= winStart) {
-      return [] as MsInterval[];
+  const allowedMs = useMemo(() => {
+    return claimableSegmentsIso.map((s) => ({
+      startMs: new Date(s.start).getTime(),
+      endMs: new Date(s.end).getTime(),
+    }));
+  }, [claimableSegmentsIso]);
+
+  const singleMode = claimableSegmentsIso.length === 1;
+
+  /** Until state syncs with `claimableSegmentsIso`, treat all multi segments as included. */
+  const multiIncluded = useMemo(() => {
+    if (singleMode) return [];
+    if (
+      included.length === claimableSegmentsIso.length &&
+      claimableSegmentsIso.length > 0
+    ) {
+      return included;
     }
-    return subtractBlocked(winStart, winEnd, blockedMs);
-  }, [winStart, winEnd, blockedMs]);
+    return claimableSegmentsIso.map(() => true);
+  }, [singleMode, included, claimableSegmentsIso]);
 
   useEffect(() => {
     if (!isOpen) return;
+    if (!singleMode) {
+      setIncluded(claimableSegmentsIso.map(() => true));
+      return;
+    }
     if (Number.isNaN(winStart) || Number.isNaN(winEnd) || winEnd <= winStart) {
       return;
     }
-    if (allowed.length === 0) {
-      setStartMs(winStart);
-      setEndMs(Math.min(winStart + MIN_SEGMENT_MS, winEnd));
-      return;
-    }
-    const def = defaultStartEnd(allowed, winStart, winEnd);
+    if (allowedMs.length === 0) return;
+    const def = defaultStartEnd(allowedMs, winStart, winEnd);
     setStartMs(def.startMs);
     setEndMs(def.endMs);
-  }, [isOpen, winStart, winEnd, allowed]);
+  }, [isOpen, singleMode, winStart, winEnd, allowedMs, claimableSegmentsIso]);
 
-  const segmentValid = useMemo(
-    () => isValidSegment(startMs, endMs, allowed),
-    [startMs, endMs, allowed]
-  );
+  const segmentValid = useMemo(() => {
+    if (claimableSegmentsIso.length === 0) return false;
+    if (singleMode) {
+      return isValidSegment(startMs, endMs, allowedMs);
+    }
+    return multiIncluded.some((inc, i) => {
+      if (!inc) return false;
+      const s = claimableSegmentsIso[i];
+      const a = new Date(s.start).getTime();
+      const b = new Date(s.end).getTime();
+      return b - a >= MIN_SEGMENT_MS;
+    });
+  }, [claimableSegmentsIso, singleMode, startMs, endMs, allowedMs, multiIncluded]);
 
   const clientXToMs = useCallback(
     (clientX: number) => {
@@ -261,21 +253,18 @@ export function OfflineTimeRequestModal({
       const frac = clamp((clientX - rect.left) / w, 0, 1);
       return winStart + frac * (winEnd - winStart);
     },
-    [winStart, winEnd]
+    [winStart, winEnd],
   );
 
   useEffect(() => {
+    if (!singleMode) return;
     const onMove = (e: PointerEvent) => {
       if (!dragRef.current) return;
       const t = clientXToMs(e.clientX);
       if (dragRef.current === "start") {
-        setStartMs(
-          clampStartGivenEnd(t, endMsRef.current, allowed)
-        );
+        setStartMs(clampStartGivenEnd(t, endMsRef.current, allowedMs));
       } else {
-        setEndMs(
-          clampEndGivenStart(startMsRef.current, t, allowed)
-        );
+        setEndMs(clampEndGivenStart(startMsRef.current, t, allowedMs));
       }
     };
     const onUp = () => {
@@ -289,11 +278,11 @@ export function OfflineTimeRequestModal({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [allowed, clientXToMs]);
+  }, [allowedMs, clientXToMs, singleMode]);
 
   const sameLocalDay = useMemo(
     () => isSameLocalCalendarDay(winStart, winEnd),
-    [winStart, winEnd]
+    [winStart, winEnd],
   );
 
   const winSpan = winEnd - winStart || 1;
@@ -309,7 +298,7 @@ export function OfflineTimeRequestModal({
     const t = combineTimeOnBaseMs(base, v);
     if (t === null) return;
     const tw = clamp(t, winStart, winEnd);
-    setStartMs(clampStartGivenEnd(tw, endMs, allowed));
+    setStartMs(clampStartGivenEnd(tw, endMs, allowedMs));
   };
 
   const onEndInput = (v: string) => {
@@ -317,27 +306,42 @@ export function OfflineTimeRequestModal({
     const t = combineTimeOnBaseMs(base, v);
     if (t === null) return;
     const tw = clamp(t, winStart, winEnd);
-    setEndMs(clampEndGivenStart(startMs, tw, allowed));
+    setEndMs(clampEndGivenStart(startMs, tw, allowedMs));
   };
 
   const handleSubmit = async () => {
     if (!description.trim() || !segmentValid) return;
-    if (
-      pendingOfflineRangesIso.length > 0 &&
-      newRangeOverlapsPending(startMs, endMs, pendingOfflineRangesIso)
-    ) {
-      toast.error(
-        "This time overlaps a pending offline request. Wait for admin review or choose a different range."
-      );
-      return;
+
+    const segments: { startAt: string; endAt: string }[] = [];
+    if (singleMode) {
+      segments.push({
+        startAt: new Date(startMs).toISOString(),
+        endAt: new Date(endMs).toISOString(),
+      });
+    } else {
+      for (let i = 0; i < claimableSegmentsIso.length; i++) {
+        if (!multiIncluded[i]) continue;
+        const s = claimableSegmentsIso[i];
+        const a = new Date(s.start).getTime();
+        const b = new Date(s.end).getTime();
+        if (b - a >= MIN_SEGMENT_MS) {
+          segments.push({ startAt: s.start, endAt: s.end });
+        }
+      }
+      if (segments.length === 0) {
+        toast.error("Select at least one claimable segment with at least one minute.");
+        return;
+      }
     }
+
     await onSubmit({
-      startAt: new Date(startMs).toISOString(),
-      endAt: new Date(endMs).toISOString(),
+      segments,
       description: description.trim(),
       category,
     });
   };
+
+  const hasClaimable = claimableSegmentsIso.length > 0;
 
   return (
     <Modal
@@ -348,12 +352,12 @@ export function OfflineTimeRequestModal({
     >
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
-          Adjust the range on the timeline (or type below). You can only request
-          time inside your selection and outside already tracked activity
-          (hatched regions are active work — not claimable).
+          {singleMode
+            ? "Adjust the range on the timeline (or type below). Hatched regions are already tracked or pending — not claimable."
+            : "Uncheck segments you do not want to include. Hatched regions are already tracked or pending — not claimable."}
         </p>
 
-        {allowed.length === 0 ? (
+        {!hasClaimable ? (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             There is no claimable time in this selection (everything is tracked).
             Close and select a different range.
@@ -371,7 +375,6 @@ export function OfflineTimeRequestModal({
                 ref={railRef}
                 className="relative h-11 select-none rounded-md border border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-800"
               >
-                {/* Blocked (tracked) regions */}
                 {blockedMs.map((b, i) => {
                   const left = Math.max(b.startMs, winStart);
                   const right = Math.min(b.endMs, winEnd);
@@ -384,90 +387,161 @@ export function OfflineTimeRequestModal({
                         left: `${pct(left)}%`,
                         width: `${((right - left) / winSpan) * 100}%`,
                       }}
-                      title="Already tracked — not claimable"
+                      title="Not claimable (tracked or pending)"
                     />
                   );
                 })}
-                {/* Selected request range */}
-                <div
-                  className="pointer-events-none absolute bottom-0 top-0 bg-emerald-400/25"
-                  style={{
-                    left: `${pct(Math.min(startMs, endMs))}%`,
-                    width: `${(Math.abs(endMs - startMs) / winSpan) * 100}%`,
-                  }}
-                />
-                {/* Draggable handles */}
-                <button
-                  type="button"
-                  aria-label="Adjust start time"
-                  className="absolute top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-white bg-emerald-600 shadow-md touch-none active:cursor-grabbing"
-                  style={{ left: `${pct(startMs)}%` }}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    dragRef.current = "start";
-                    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                  }}
-                />
-                <button
-                  type="button"
-                  aria-label="Adjust end time"
-                  className="absolute top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-white bg-emerald-600 shadow-md touch-none active:cursor-grabbing"
-                  style={{ left: `${pct(endMs)}%` }}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    dragRef.current = "end";
-                    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                  }}
-                />
+                {singleMode ? (
+                  <div
+                    className="pointer-events-none absolute bottom-0 top-0 bg-emerald-400/25"
+                    style={{
+                      left: `${pct(Math.min(startMs, endMs))}%`,
+                      width: `${(Math.abs(endMs - startMs) / winSpan) * 100}%`,
+                    }}
+                  />
+                ) : (
+                  claimableSegmentsIso.map((seg, i) => {
+                    if (!multiIncluded[i]) return null;
+                    const left = Math.max(new Date(seg.start).getTime(), winStart);
+                    const right = Math.min(new Date(seg.end).getTime(), winEnd);
+                    if (right <= left) return null;
+                    return (
+                      <div
+                        key={`claim-${i}`}
+                        className="pointer-events-none absolute bottom-0 top-0 bg-emerald-400/25"
+                        style={{
+                          left: `${pct(left)}%`,
+                          width: `${((right - left) / winSpan) * 100}%`,
+                        }}
+                      />
+                    );
+                  })
+                )}
+                {singleMode ? (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Adjust start time"
+                      className="absolute top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-white bg-emerald-600 shadow-md touch-none active:cursor-grabbing"
+                      style={{ left: `${pct(startMs)}%` }}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        dragRef.current = "start";
+                        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      aria-label="Adjust end time"
+                      className="absolute top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 border-white bg-emerald-600 shadow-md touch-none active:cursor-grabbing"
+                      style={{ left: `${pct(endMs)}%` }}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        dragRef.current = "end";
+                        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                      }}
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              {!sameLocalDay ? (
-                <p className="text-xs text-slate-500">
-                  Start time uses the first day of the selection; end time uses the
-                  last day (spans multiple calendar days).
-                </p>
-              ) : (
-                <p className="text-xs text-slate-500">
-                  Times are local (same day as the selection).
-                </p>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Start time
-                  </label>
-                  <input
-                    type="time"
-                    step={60}
-                    value={startTimeValue}
-                    min={sameLocalDay ? minTimeValue : undefined}
-                    max={sameLocalDay ? maxTimeValue : undefined}
-                    onChange={(e) => onStartInput(e.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
+            {!singleMode ? (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-slate-600">
+                  Include claimable segments
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    End time
-                  </label>
-                  <input
-                    type="time"
-                    step={60}
-                    value={endTimeValue}
-                    min={sameLocalDay ? minTimeValue : undefined}
-                    max={sameLocalDay ? maxTimeValue : undefined}
-                    onChange={(e) => onEndInput(e.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
+                <ul className="max-h-40 space-y-2 overflow-y-auto">
+                  {claimableSegmentsIso.map((seg, i) => {
+                    const a = new Date(seg.start).getTime();
+                    const b = new Date(seg.end).getTime();
+                    const dur = b - a;
+                    return (
+                      <li key={`inc-${i}`}>
+                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-200 px-3 py-2 hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800/60">
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-600"
+                            checked={multiIncluded[i] ?? true}
+                            onChange={(e) => {
+                              setIncluded((prev) => {
+                                const base =
+                                  prev.length === claimableSegmentsIso.length
+                                    ? [...prev]
+                                    : claimableSegmentsIso.map(() => true);
+                                base[i] = e.target.checked;
+                                return base;
+                              });
+                            }}
+                          />
+                          <span className="text-sm text-slate-800 dark:text-slate-100">
+                            {formatShort(a)} → {formatShort(b)}
+                            <span className="ml-2 tabular-nums text-slate-500">
+                              ({formatDuration(dur)})
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            {singleMode ? (
+              <div className="space-y-1.5">
+                {!sameLocalDay ? (
+                  <p className="text-xs text-slate-500">
+                    Start time uses the first day of the selection; end time uses the
+                    last day (spans multiple calendar days).
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    Times are local (same day as the selection).
+                  </p>
+                )}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      Start time
+                    </label>
+                    <input
+                      type="time"
+                      step={60}
+                      value={startTimeValue}
+                      min={sameLocalDay ? minTimeValue : undefined}
+                      max={sameLocalDay ? maxTimeValue : undefined}
+                      onChange={(e) => onStartInput(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">
+                      End time
+                    </label>
+                    <input
+                      type="time"
+                      step={60}
+                      value={endTimeValue}
+                      min={sameLocalDay ? minTimeValue : undefined}
+                      max={sameLocalDay ? maxTimeValue : undefined}
+                      onChange={(e) => onEndInput(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-            {!segmentValid && allowed.length > 0 ? (
+            ) : null}
+
+            {singleMode && !segmentValid && hasClaimable ? (
               <p className="text-xs text-amber-700">
                 Range must stay within claimable time (not overlapping tracked
                 activity) and be at least one minute.
+              </p>
+            ) : null}
+            {!singleMode && !segmentValid && hasClaimable ? (
+              <p className="text-xs text-amber-700">
+                Include at least one segment of at least one minute.
               </p>
             ) : null}
           </>
@@ -530,7 +604,7 @@ export function OfflineTimeRequestModal({
               isSubmitting ||
               !description.trim() ||
               !segmentValid ||
-              allowed.length === 0
+              !hasClaimable
             }
             onClick={() => void handleSubmit()}
             className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
