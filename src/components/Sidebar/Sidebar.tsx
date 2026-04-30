@@ -298,8 +298,8 @@ function Tooltip({ children, content, show }: TooltipProps): React.JSX.Element {
 // Sample data - same as the original
 const data: SidebarData = {
   user: {
-    name: "Admin",
-    email: "admin@averox.com",
+    name: "",
+    email: "",
     avatar: "/avatars/shadcn.jpg",
   },
   company: {
@@ -898,8 +898,10 @@ function NavUser({ forceExpanded = false }: NavUserProps): React.JSX.Element {
 
   const authUser = useAppSelector((state) => state.auth.user);
   const displayName =
-    authUser?.name || authUser?.email?.split("@")[0] || data.user.name;
-  const displayEmail = authUser?.email || data.user.email;
+    authUser?.name?.trim() ||
+    authUser?.email?.split("@")[0]?.trim() ||
+    "Account";
+  const displayEmail = authUser?.email?.trim() ?? "";
   const initials =
     displayName
       .split(" ")
@@ -925,9 +927,11 @@ function NavUser({ forceExpanded = false }: NavUserProps): React.JSX.Element {
                 <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                   {displayName}
                 </div>
-                <div className="truncate text-xs text-slate-500">
-                  {displayEmail}
-                </div>
+                {displayEmail ? (
+                  <div className="truncate text-xs text-slate-500">
+                    {displayEmail}
+                  </div>
+                ) : null}
               </div>
               <MdExpandMore className="h-4 w-4 text-slate-500" />
             </>
@@ -944,9 +948,11 @@ function NavUser({ forceExpanded = false }: NavUserProps): React.JSX.Element {
             <p className="font-medium text-slate-900 dark:text-slate-50">
               {displayName}
             </p>
-            <p className="text-sm text-slate-500 dark:text-slate-300">
-              {displayEmail}
-            </p>
+            {displayEmail ? (
+              <p className="text-sm text-slate-500 dark:text-slate-300">
+                {displayEmail}
+              </p>
+            ) : null}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
