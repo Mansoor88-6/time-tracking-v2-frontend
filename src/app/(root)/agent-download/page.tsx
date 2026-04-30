@@ -5,10 +5,9 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import {
   getAgentInfo,
   downloadAgent,
-  getExtensionInfo,
-  downloadExtension,
+  getMacAgentInfo,
+  downloadMacAgent,
   type AgentInfo,
-  type ExtensionInfo,
 } from "@/services/agent";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
@@ -34,33 +33,31 @@ function formatDate(dateStr: string): string {
 
 export default function AgentDownloadPage() {
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
-  const [extensionInfo, setExtensionInfo] = useState<ExtensionInfo | null>(
-    null
-  );
+  const [macAgentInfo, setMacAgentInfo] = useState<AgentInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const [extensionDownloading, setExtensionDownloading] = useState(false);
+  const [macDownloading, setMacDownloading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const [agent, extension] = await Promise.all([
+      const [agent, mac] = await Promise.all([
         getAgentInfo(),
-        getExtensionInfo(),
+        getMacAgentInfo(),
       ]);
       setAgentInfo(agent);
-      setExtensionInfo(extension);
+      setMacAgentInfo(mac);
       setLoading(false);
     };
     void load();
   }, []);
 
-  const handleDownload = async () => {
+  const handleDownloadWindows = async () => {
     setDownloading(true);
     try {
       const ok = await downloadAgent();
       if (!ok) {
-        toast.error("Tracking agent is not available yet.");
+        toast.error("Windows agent is not available yet.");
       } else {
         toast.success("Download started.");
       }
@@ -71,19 +68,19 @@ export default function AgentDownloadPage() {
     }
   };
 
-  const handleExtensionDownload = async () => {
-    setExtensionDownloading(true);
+  const handleDownloadMac = async () => {
+    setMacDownloading(true);
     try {
-      const ok = await downloadExtension();
+      const ok = await downloadMacAgent();
       if (!ok) {
-        toast.error("Browser extension is not available yet.");
+        toast.error("Mac agent is not available yet.");
       } else {
         toast.success("Download started.");
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download failed");
     } finally {
-      setExtensionDownloading(false);
+      setMacDownloading(false);
     }
   };
 
@@ -92,10 +89,13 @@ export default function AgentDownloadPage() {
       <div className="space-y-6">
         <PageHeader
           title="Download Agent"
-          description="Install the time tracking agent on your machine to record activity. Run the installer and sign in with your account to start tracking."
+          description="Install the time tracking desktop agent on your machine to record activity. Download the build for your operating system, run the installer or open the disk image, and sign in with your account to start tracking."
         />
 
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50 mb-2">
+            Windows
+          </h2>
           {loading ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">
               Checking for agent...
@@ -109,49 +109,50 @@ export default function AgentDownloadPage() {
               </p>
               <button
                 type="button"
-                onClick={() => void handleDownload()}
+                onClick={() => void handleDownloadWindows()}
                 disabled={downloading}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <BiDownload className="w-5 h-5" />
-                {downloading ? "Downloading..." : "Download"}
+                {downloading ? "Downloading..." : "Download for Windows"}
               </button>
             </div>
           ) : (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Agent not available yet. Your admin will make it available soon.
+              Windows agent not available yet. Your admin will make it available
+              soon.
             </p>
           )}
         </div>
 
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6">
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50 mb-2">
-            Browser Extension
+            macOS
           </h2>
           {loading ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Checking for extension...
+              Checking for Mac agent...
             </p>
-          ) : extensionInfo ? (
+          ) : macAgentInfo ? (
             <div className="space-y-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Current build: <strong>{extensionInfo.filename}</strong> (
-                {formatBytes(extensionInfo.size)}), uploaded{" "}
-                {formatDate(extensionInfo.uploadedAt)}.
+                Current build: <strong>{macAgentInfo.filename}</strong> (
+                {formatBytes(macAgentInfo.size)}), uploaded{" "}
+                {formatDate(macAgentInfo.uploadedAt)}.
               </p>
               <button
                 type="button"
-                onClick={() => void handleExtensionDownload()}
-                disabled={extensionDownloading}
+                onClick={() => void handleDownloadMac()}
+                disabled={macDownloading}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <BiDownload className="w-5 h-5" />
-                {extensionDownloading ? "Downloading..." : "Download"}
+                {macDownloading ? "Downloading..." : "Download for macOS"}
               </button>
             </div>
           ) : (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Extension not available yet. Your admin will make it available
+              Mac agent not available yet. Your admin will make it available
               soon.
             </p>
           )}

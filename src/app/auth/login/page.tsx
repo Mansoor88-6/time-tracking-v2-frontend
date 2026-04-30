@@ -36,7 +36,7 @@ const Signin = () => {
           email: data.email,
           password: data.password,
           userType: "user",
-        })
+        }),
       ).unwrap();
       // Clear stale RTK Query cache (e.g. cached 401 from /auth/me) so it refetches with new token
       dispatch(authApi.util.resetApiState());
@@ -57,12 +57,17 @@ const Signin = () => {
           Sign in to continue
         </p>
       </div>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <form
+        method="post"
+        onSubmit={handleSubmit(onSubmit)}
+        className="space-y-4"
+      >
         <FloatingInput
           {...register("email", { required: "Email is required to login" })}
           label={"Email"}
           id="email"
           type="email"
+          autoComplete="email"
           error={errors.email && errors.email.message}
         />
 
@@ -71,6 +76,7 @@ const Signin = () => {
           label={"Password"}
           id="password"
           type="password"
+          autoComplete="off"
           error={errors.password && errors.password.message}
         />
         {/* Remember me / Forgot Password */}

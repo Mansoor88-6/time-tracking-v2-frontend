@@ -6,6 +6,7 @@ import { useAppSelector } from "@/redux/hooks";
 import { StatCard } from "@/components/ui/StatCard/StatCard";
 import { AppUsageSection, AppUsageItem } from "@/components/ui/AppUsageSection";
 import { ProductivityTimeline } from "@/components/ui/ProductivityTimeline";
+import { MonthlyProductivityCalendar } from "@/components/ui/MonthlyProductivityCalendar/MonthlyProductivityCalendar";
 import { fetchTimelineSlots } from "@/services/timeline";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -17,6 +18,7 @@ import { toast } from "react-toastify";
 import {
   fetchDashboardStats,
   fetchOrganizationDashboardStats,
+  fetchMonthCalendarStats,
   formatDuration,
   formatTimeWithSuffix,
   type DashboardStatsResponse,
@@ -48,6 +50,7 @@ import {
   Period,
   getDateRangeForPeriod,
   shouldShowLeftTime,
+  getTodayLocalDateString,
 } from "@/utils/dateRange";
 import { getColorClassesUtil } from "@/theme/utils";
 import {
@@ -338,6 +341,45 @@ const OrgDashboardPage = () => {
     }
     return true;
   }, [period, customStartDate, customEndDate]);
+
+  const showMonthOverview = useMemo(
+    () =>
+      !isOrgAdmin &&
+      period === "month" &&
+      !(customStartDate && customEndDate) &&
+      !!dateRange.startDate &&
+      !!dateRange.endDate,
+    [
+      isOrgAdmin,
+      period,
+      customStartDate,
+      customEndDate,
+      dateRange.startDate,
+      dateRange.endDate,
+    ]
+  );
+
+  const {
+    data: monthCalendarData,
+    isLoading: isMonthCalendarLoading,
+    isError: isMonthCalendarError,
+    error: monthCalendarError,
+  } = useQuery({
+    queryKey: [
+      "month-calendar",
+      dateRange.startDate,
+      dateRange.endDate,
+      timezone,
+    ],
+    queryFn: () =>
+      fetchMonthCalendarStats(
+        dateRange.startDate!,
+        dateRange.endDate!,
+        timezone
+      ),
+    enabled: showMonthOverview,
+    staleTime: 45_000,
+  });
 
   const queryClient = useQueryClient();
 
@@ -1055,6 +1097,25 @@ const OrgDashboardPage = () => {
             </>
           )}
         </div>
+
+        {showMonthOverview &&
+        dateRange.startDate &&
+        dateRange.endDate ? (
+          <MonthlyProductivityCalendar
+            monthStartYmd={dateRange.startDate}
+            monthEndYmd={dateRange.endDate}
+            days={monthCalendarData?.days ?? []}
+            todayYmd={getTodayLocalDateString()}
+            isLoading={isMonthCalendarLoading}
+            error={
+              isMonthCalendarError
+                ? monthCalendarError instanceof Error
+                  ? monthCalendarError.message
+                  : "Failed to load month overview"
+                : null
+            }
+          />
+        ) : null}
       </div>
     </AuthGuard>
   );

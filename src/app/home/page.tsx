@@ -452,8 +452,7 @@ export default function HomeLandingPage() {
                 <div className="hl-price-amount">$15 USD</div>
                 <div className="hl-price-sub">per user / month · billed according to your agreement</div>
                 <ul className="hl-price-features">
-                  <li>Desktop tracking agent (Windows) with secure device registration</li>
-                  <li>Browser extension for web activity (where you enable it)</li>
+                  <li>Desktop tracking agents (Windows and macOS) with secure device registration</li>
                   <li>Live dashboards: productivity, app usage, and timeline views</li>
                   <li>Teams, projects, and organization structure</li>
                   <li>Productivity rules and rule collections per team</li>

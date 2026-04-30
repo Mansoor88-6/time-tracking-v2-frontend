@@ -7,9 +7,11 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { StatCard } from "@/components/ui/StatCard/StatCard";
 import { AppUsageSection } from "@/components/ui/AppUsageSection";
 import { ProductivityTimeline } from "@/components/ui/ProductivityTimeline";
+import { MonthlyProductivityCalendar } from "@/components/ui/MonthlyProductivityCalendar/MonthlyProductivityCalendar";
 import { fetchTimelineSlots } from "@/services/timeline";
 import {
   fetchDashboardStats,
+  fetchMonthCalendarStats,
   formatDuration,
   formatTimeWithSuffix,
   type DashboardStatsResponse,
@@ -28,6 +30,7 @@ import {
   Period,
   getDateRangeForPeriod,
   shouldShowLeftTime,
+  getTodayLocalDateString,
 } from "@/utils/dateRange";
 import { getIndividualStatTooltip } from "@/utils/dashboardStatTooltips";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -267,6 +270,48 @@ const UserViewPage = () => {
     }
     return true;
   }, [selectedUserId, period, customStartDate, customEndDate]);
+
+  const showMonthOverview = useMemo(
+    () =>
+      selectedUserId != null &&
+      period === "month" &&
+      !(customStartDate && customEndDate) &&
+      !!dateRange.startDate &&
+      !!dateRange.endDate,
+    [
+      selectedUserId,
+      period,
+      customStartDate,
+      customEndDate,
+      dateRange.startDate,
+      dateRange.endDate,
+    ]
+  );
+
+  const {
+    data: monthCalendarData,
+    isLoading: isMonthCalendarLoading,
+    isError: isMonthCalendarError,
+    error: monthCalendarError,
+  } = useQuery({
+    queryKey: [
+      "month-calendar",
+      "user-view",
+      selectedUserId,
+      dateRange.startDate,
+      dateRange.endDate,
+      timezone,
+    ],
+    queryFn: () =>
+      fetchMonthCalendarStats(
+        dateRange.startDate!,
+        dateRange.endDate!,
+        timezone,
+        selectedUserId!
+      ),
+    enabled: showMonthOverview,
+    staleTime: 45_000,
+  });
 
   const {
     data: timelineSlots,
@@ -599,6 +644,26 @@ const UserViewPage = () => {
                 </>
               )}
             </div>
+
+            {showMonthOverview &&
+            selectedUserId != null &&
+            dateRange.startDate &&
+            dateRange.endDate ? (
+              <MonthlyProductivityCalendar
+                monthStartYmd={dateRange.startDate}
+                monthEndYmd={dateRange.endDate}
+                days={monthCalendarData?.days ?? []}
+                todayYmd={getTodayLocalDateString()}
+                isLoading={isMonthCalendarLoading}
+                error={
+                  isMonthCalendarError
+                    ? monthCalendarError instanceof Error
+                      ? monthCalendarError.message
+                      : "Failed to load month overview"
+                    : null
+                }
+              />
+            ) : null}
           </>
         )}
       </div>

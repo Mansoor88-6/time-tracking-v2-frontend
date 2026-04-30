@@ -8,10 +8,9 @@ import { apiClient } from "@/lib/apiClient";
 import {
   getAgentInfo,
   uploadAgent,
-  getExtensionInfo,
-  uploadExtension,
+  getMacAgentInfo,
+  uploadMacAgent,
   type AgentInfo,
-  type ExtensionInfo,
 } from "@/services/agent";
 import {
   listPricingContactRequests,
@@ -42,11 +41,10 @@ const SuperAdminPage = () => {
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentUploading, setAgentUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [extensionInfo, setExtensionInfo] = useState<ExtensionInfo | null>(null);
-  const [extensionLoading, setExtensionLoading] = useState(false);
-  const [extensionUploading, setExtensionUploading] = useState(false);
-  const [selectedExtensionFile, setSelectedExtensionFile] =
-    useState<File | null>(null);
+  const [macAgentInfo, setMacAgentInfo] = useState<AgentInfo | null>(null);
+  const [macAgentLoading, setMacAgentLoading] = useState(false);
+  const [macAgentUploading, setMacAgentUploading] = useState(false);
+  const [selectedMacFile, setSelectedMacFile] = useState<File | null>(null);
 
   const [contactRequests, setContactRequests] = useState<
     PricingContactRequestRow[]
@@ -89,11 +87,11 @@ const SuperAdminPage = () => {
     setAgentLoading(false);
   };
 
-  const loadExtensionInfo = async () => {
-    setExtensionLoading(true);
-    const info = await getExtensionInfo();
-    setExtensionInfo(info);
-    setExtensionLoading(false);
+  const loadMacAgentInfo = async () => {
+    setMacAgentLoading(true);
+    const info = await getMacAgentInfo();
+    setMacAgentInfo(info);
+    setMacAgentLoading(false);
   };
 
   useEffect(() => {
@@ -103,10 +101,7 @@ const SuperAdminPage = () => {
 
   useEffect(() => {
     void loadAgentInfo();
-  }, []);
-
-  useEffect(() => {
-    void loadExtensionInfo();
+    void loadMacAgentInfo();
   }, []);
 
   const updateTenantStatus = async (
@@ -173,27 +168,28 @@ const SuperAdminPage = () => {
     }
   };
 
-  const handleExtensionUpload = async () => {
-    if (!selectedExtensionFile) {
-      toast.error("Please select a .zip file");
+  const handleMacAgentUpload = async () => {
+    if (!selectedMacFile) {
+      toast.error("Please select a .dmg or .zip file");
       return;
     }
-    if (!selectedExtensionFile.name.toLowerCase().endsWith(".zip")) {
-      toast.error("Only .zip files are allowed");
+    const n = selectedMacFile.name.toLowerCase();
+    if (!n.endsWith(".dmg") && !n.endsWith(".zip")) {
+      toast.error("Only .dmg or .zip files are allowed for the Mac agent");
       return;
     }
     try {
-      setExtensionUploading(true);
-      const info = await uploadExtension(selectedExtensionFile);
-      setExtensionInfo(info);
-      setSelectedExtensionFile(null);
-      toast.success("Browser extension uploaded successfully");
+      setMacAgentUploading(true);
+      const info = await uploadMacAgent(selectedMacFile);
+      setMacAgentInfo(info);
+      setSelectedMacFile(null);
+      toast.success("Mac tracking agent uploaded successfully");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to upload extension"
+        err instanceof Error ? err.message : "Failed to upload Mac agent"
       );
     } finally {
-      setExtensionUploading(false);
+      setMacAgentUploading(false);
     }
   };
 
@@ -480,14 +476,14 @@ const SuperAdminPage = () => {
           variant="warning"
         />
 
-        {/* Tracking Agent section */}
+        {/* Windows tracking agent */}
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-            Tracking Agent
+            Windows tracking agent
           </h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Upload the Go tracking agent .exe. Users will be able to download it
-            from the app.
+            Upload the Windows installer (.exe). End users download it from the
+            agent download page.
           </p>
           {agentLoading ? (
             <p className="text-sm text-slate-500">Loading agent info...</p>
@@ -529,25 +525,26 @@ const SuperAdminPage = () => {
           </div>
         </div>
 
-        {/* Browser Extension section */}
+        {/* Mac tracking agent */}
         <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6 space-y-4">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-            Browser Extension
+            Mac tracking agent
           </h2>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Upload the zipped browser extension for users to install.
+            Upload a .dmg or .zip for macOS. End users download it from the agent
+            download page.
           </p>
-          {extensionLoading ? (
-            <p className="text-sm text-slate-500">Loading extension info...</p>
-          ) : extensionInfo ? (
+          {macAgentLoading ? (
+            <p className="text-sm text-slate-500">Loading Mac agent info...</p>
+          ) : macAgentInfo ? (
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Current build: <strong>{extensionInfo.filename}</strong>,{" "}
-              {formatBytes(extensionInfo.size)}, uploaded{" "}
-              {formatDate(extensionInfo.uploadedAt)}.
+              Current build: <strong>{macAgentInfo.filename}</strong>,{" "}
+              {formatBytes(macAgentInfo.size)}, uploaded{" "}
+              {formatDate(macAgentInfo.uploadedAt)}.
             </p>
           ) : (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              No extension uploaded yet.
+              No Mac agent uploaded yet.
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3">
@@ -557,24 +554,24 @@ const SuperAdminPage = () => {
               </span>
               <input
                 type="file"
-                accept=".zip"
+                accept=".dmg,.zip,application/x-apple-diskimage,application/zip"
                 onChange={(e) =>
-                  setSelectedExtensionFile(e.target.files?.[0] ?? null)
+                  setSelectedMacFile(e.target.files?.[0] ?? null)
                 }
                 className="text-sm text-slate-600 dark:text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border file:border-slate-300 dark:file:border-slate-600 file:bg-white dark:file:bg-slate-800 file:text-slate-700 dark:file:text-slate-200"
               />
             </label>
-            {selectedExtensionFile && (
+            {selectedMacFile && (
               <span className="text-sm text-slate-600 dark:text-slate-400">
-                {selectedExtensionFile.name}
+                {selectedMacFile.name}
               </span>
             )}
             <button
-              onClick={() => void handleExtensionUpload()}
-              disabled={!selectedExtensionFile || extensionUploading}
+              onClick={() => void handleMacAgentUpload()}
+              disabled={!selectedMacFile || macAgentUploading}
               className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {extensionUploading ? "Uploading..." : "Upload"}
+              {macAgentUploading ? "Uploading..." : "Upload"}
             </button>
           </div>
         </div>

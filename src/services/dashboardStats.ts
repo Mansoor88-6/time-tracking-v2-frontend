@@ -117,6 +117,34 @@ export interface OrganizationDashboardStatsResponse {
   }>;
 }
 
+export type MonthOverviewDay = { date: string } & DashboardStatsResponse;
+
+export interface MonthCalendarResponse {
+  days: MonthOverviewDay[];
+}
+
+/**
+ * Fetch per-day stats for the month overview grid.
+ */
+export async function fetchMonthCalendarStats(
+  startDate: string,
+  endDate: string,
+  timezone?: string,
+  viewAsUserId?: number
+): Promise<MonthCalendarResponse> {
+  const params = new URLSearchParams({
+    startDate,
+    endDate,
+  });
+  if (timezone) params.append("tz", timezone);
+  if (viewAsUserId !== undefined && viewAsUserId !== null) {
+    params.append("userId", String(viewAsUserId));
+  }
+  return apiClient<MonthCalendarResponse>(
+    `/api/v1/dashboard/month-calendar?${params.toString()}`
+  );
+}
+
 /**
  * Fetch organization dashboard stats from the backend
  */

@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   MdDashboard,
   MdPeople,
+  MdGroups,
   MdPersonAdd,
   MdBusiness,
   MdTrendingUp,
@@ -180,6 +181,7 @@ const IconMap: Record<string, IconComponent> = {
   // Navigation icons
   LayoutDashboard: MdDashboard,
   Users: MdPeople,
+  Colleagues: MdGroups,
   UserPlus: MdPersonAdd,
   Briefcase: MdBusiness,
   TrendingUp: MdTrendingUp,
@@ -331,6 +333,18 @@ const data: SidebarData = {
           name: "Dashboard",
           url: "/dashboard",
           icon: "LayoutDashboard",
+          requiredRoles: [
+            UserRole.SUPER_ADMIN,
+            UserRole.ORG_ADMIN,
+            UserRole.TEAM_MANAGER,
+            UserRole.EMPLOYEE,
+            UserRole.VIEWER,
+          ],
+        },
+        {
+          name: "Colleagues",
+          url: "/colleagues",
+          icon: "Colleagues",
           requiredRoles: [
             UserRole.SUPER_ADMIN,
             UserRole.ORG_ADMIN,

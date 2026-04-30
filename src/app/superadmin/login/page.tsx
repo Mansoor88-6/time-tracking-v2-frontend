@@ -34,7 +34,7 @@ const SuperAdminLoginPage = () => {
           email: data.email,
           password: data.password,
           userType: "superadmin",
-        })
+        }),
       ).unwrap();
       dispatch(authApi.util.resetApiState());
       router.push("/superadmin");
@@ -55,12 +55,17 @@ const SuperAdminLoginPage = () => {
             Sign in to manage tenants and platform settings.
           </p>
         </div>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form
+          method="post"
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-4"
+        >
           <FloatingInput
             {...register("email", { required: "Email is required" })}
             label="Email"
             id="superadmin-email"
             type="email"
+            autoComplete="email"
             error={errors.email?.message}
           />
           <FloatingInput
@@ -68,6 +73,7 @@ const SuperAdminLoginPage = () => {
             label="Password"
             id="superadmin-password"
             type="password"
+            autoComplete="off"
             error={errors.password?.message}
           />
           <button
