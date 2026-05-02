@@ -4,7 +4,6 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { DataToolbar } from "@/components/admin/DataToolbar";
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
-import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { ModalForm } from "@/components/admin/ModalForm";
 import {
   productivityRulesApi,
@@ -15,12 +14,11 @@ import {
 } from "@/lib/api/productivity-rules";
 import { ruleCollectionsApi, RuleCollection } from "@/lib/api/rule-collections";
 import { teamsApi, Team } from "@/lib/api/teams";
-import { useAppSelector } from "@/redux/hooks";
-import { useEffect, useState, useMemo } from "react";
-import { BiCheck, BiX, BiMinus, BiFilter, BiPlus } from "react-icons/bi";
+import { useCallback, useEffect, useState, useMemo } from "react";
+import { BiArchive, BiCheck, BiX, BiMinus, BiPlus } from "react-icons/bi";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
-import { getColorClassesUtil, getSemanticColor, getCategoryStylesUtil, getPrimaryButtonStyle } from "@/theme/utils";
+import { getSemanticColor, getCategoryStylesUtil, getPrimaryButtonStyle } from "@/theme/utils";
 
 interface ClassifyFormData {
   category: AppCategory;
@@ -34,7 +32,6 @@ interface BulkAddToCollectionFormData {
 }
 
 const UnclassifiedAppsPage = () => {
-  const { user } = useAppSelector((state) => state.auth);
   const [unclassifiedApps, setUnclassifiedApps] = useState<UnclassifiedApp[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [collections, setCollections] = useState<RuleCollection[]>([]);
@@ -48,6 +45,7 @@ const UnclassifiedAppsPage = () => {
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
   const [selectedApp, setSelectedApp] = useState<UnclassifiedApp | null>(null);
   const [selectedApps, setSelectedApps] = useState<number[]>([]);
+  const [archivingIds, setArchivingIds] = useState<number[]>([]);
 
   const {
     register: registerClassify,
@@ -63,28 +61,14 @@ const UnclassifiedAppsPage = () => {
     formState: { errors: errorsBulkAdd, isSubmitting: isSubmittingBulkAdd },
   } = useForm<BulkAddToCollectionFormData>();
 
-  const loadTeams = async () => {
-    try {
-      const data = await teamsApi.list();
-      setTeams(data);
-    } catch (err) {
-      console.error("Failed to load teams:", err);
-    }
-  };
-
-  const loadCollections = async () => {
-    try {
-      const data = await ruleCollectionsApi.list();
-      setCollections(data);
-    } catch (err) {
-      console.error("Failed to load collections:", err);
-    }
-  };
-
-  const loadUnclassifiedApps = async () => {
+  const loadUnclassifiedApps = useCallback(async () => {
     try {
       setLoading(true);
-      const filters: any = {};
+      const filters: {
+        teamId?: number;
+        appType?: AppType;
+        status?: UnclassifiedAppStatus;
+      } = {};
       if (teamFilter !== "all") {
         filters.teamId = teamFilter;
       }
@@ -104,17 +88,28 @@ const UnclassifiedAppsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [appTypeFilter, statusFilter, teamFilter]);
 
   useEffect(() => {
-    void loadTeams();
-    void loadCollections();
-    void loadUnclassifiedApps();
+    const loadInitialData = async () => {
+      try {
+        const [teamsData, collectionsData] = await Promise.all([
+          teamsApi.list(),
+          ruleCollectionsApi.list(),
+        ]);
+        setTeams(teamsData);
+        setCollections(collectionsData);
+      } catch (err) {
+        console.error("Failed to load unclassified page data:", err);
+      }
+    };
+
+    void loadInitialData();
   }, []);
 
   useEffect(() => {
     void loadUnclassifiedApps();
-  }, [teamFilter, appTypeFilter, statusFilter]);
+  }, [loadUnclassifiedApps]);
 
   const filteredApps = unclassifiedApps.filter((app) =>
     app.appName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -157,41 +152,6 @@ const UnclassifiedAppsPage = () => {
     }
   };
 
-  const handleBulkClassify = async (data: BulkAddToCollectionFormData) => {
-    if (selectedApps.length === 0) return;
-    if (!data.collectionId) {
-      toast.error("Please select a collection");
-      return;
-    }
-    const appsToClassify = unclassifiedApps.filter((app) =>
-      selectedApps.includes(app.id)
-    );
-    let successCount = 0;
-    for (const app of appsToClassify) {
-      try {
-        await productivityRulesApi.classifyUnclassified({
-          unclassifiedId: app.id,
-          collectionId: parseInt(data.collectionId, 10),
-          category: data.category,
-        });
-        successCount += 1;
-      } catch (err) {
-        console.error(`Failed to classify ${app.appName}:`, err);
-      }
-    }
-    if (successCount === 0) {
-      toast.error("Couldn't classify selected apps. Please check collection/team mapping and try again.");
-    } else {
-      toast.success(
-        `Classified ${successCount} of ${appsToClassify.length} app(s) and added to collection`
-      );
-    }
-    setSelectedApps([]);
-    setIsBulkAddModalOpen(false);
-    resetBulkAdd();
-    await loadUnclassifiedApps();
-  };
-
   const handleBulkAddToCollection = async (data: BulkAddToCollectionFormData) => {
     if (selectedApps.length === 0) return;
     if (!data.collectionId) {
@@ -224,6 +184,51 @@ const UnclassifiedAppsPage = () => {
     setSelectedApps([]);
     setIsBulkAddModalOpen(false);
     resetBulkAdd();
+    await loadUnclassifiedApps();
+  };
+
+  const handleArchiveApp = async (app: UnclassifiedApp) => {
+    try {
+      setArchivingIds((prev) => [...prev, app.id]);
+      await productivityRulesApi.archiveUnclassified(app.id);
+      setSelectedApps((prev) => prev.filter((id) => id !== app.id));
+      toast.success(`${app.appName} archived`);
+      await loadUnclassifiedApps();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to archive app");
+    } finally {
+      setArchivingIds((prev) => prev.filter((id) => id !== app.id));
+    }
+  };
+
+  const handleBulkArchive = async () => {
+    if (selectedApps.length === 0) return;
+
+    const appsToArchive = unclassifiedApps.filter((app) =>
+      selectedApps.includes(app.id)
+    );
+    setArchivingIds((prev) => [...prev, ...appsToArchive.map((app) => app.id)]);
+
+    let successCount = 0;
+    for (const app of appsToArchive) {
+      try {
+        await productivityRulesApi.archiveUnclassified(app.id);
+        successCount += 1;
+      } catch (err) {
+        console.error(`Failed to archive ${app.appName}:`, err);
+      }
+    }
+
+    if (successCount === 0) {
+      toast.error("Couldn't archive selected apps. Please try again.");
+    } else {
+      toast.success(`Archived ${successCount} of ${appsToArchive.length} app(s)`);
+    }
+
+    setSelectedApps([]);
+    setArchivingIds((prev) =>
+      prev.filter((id) => !appsToArchive.some((app) => app.id === id))
+    );
     await loadUnclassifiedApps();
   };
 
@@ -351,6 +356,7 @@ const UnclassifiedAppsPage = () => {
           pending: getSemanticColor("warning").badge,
           reviewed: getSemanticColor("info").badge,
           classified: getSemanticColor("success").badge,
+          archived: "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200",
         };
         return (
           <span className={`capitalize px-2 py-1 rounded text-sm ${statusColors[app.status]}`}>
@@ -410,6 +416,14 @@ const UnclassifiedAppsPage = () => {
             >
               Classify
             </button>
+            <button
+              onClick={() => void handleArchiveApp(app)}
+              disabled={archivingIds.includes(app.id)}
+              className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-xs hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+              title="Archive and hide from the pending review list"
+            >
+              {archivingIds.includes(app.id) ? "Archiving..." : "Archive"}
+            </button>
           </div>
         );
       },
@@ -428,23 +442,23 @@ const UnclassifiedAppsPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
             <div className="text-sm text-gray-500 dark:text-gray-400">Total Unclassified</div>
-            <div className="text-2xl font-bold mt-1">{stats.total}</div>
+            <div className="text-2xl font-bold mt-1 text-slate-900 dark:text-slate-50">{stats.total}</div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
             <div className="text-sm text-gray-500 dark:text-gray-400">By Team</div>
-            <div className="text-2xl font-bold mt-1">
+            <div className="text-2xl font-bold mt-1 text-slate-900 dark:text-slate-50">
               {Object.keys(stats.byTeam).length} teams
             </div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
             <div className="text-sm text-gray-500 dark:text-gray-400">Pending Review</div>
-            <div className="text-2xl font-bold mt-1">
+            <div className="text-2xl font-bold mt-1 text-slate-900 dark:text-slate-50">
               {unclassifiedApps.filter((a) => a.status === "pending").length}
             </div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
             <div className="text-sm text-gray-500 dark:text-gray-400">Selected</div>
-            <div className="text-2xl font-bold mt-1">{selectedApps.length}</div>
+            <div className="text-2xl font-bold mt-1 text-slate-900 dark:text-slate-50">{selectedApps.length}</div>
           </div>
         </div>
 
@@ -454,6 +468,14 @@ const UnclassifiedAppsPage = () => {
           actions={
             selectedApps.length > 0 && (
               <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => void handleBulkArchive()}
+                  disabled={selectedApps.some((id) => archivingIds.includes(id))}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <BiArchive size={20} />
+                  Archive ({selectedApps.length})
+                </button>
                 <button
                   onClick={() => {
                     resetBulkAdd();
@@ -499,13 +521,13 @@ const UnclassifiedAppsPage = () => {
           }
         />
 
-        <div className="flex gap-4 mb-4">
+        <div className="flex gap-4 mb-4 flex-wrap">
           <select
             value={teamFilter}
             onChange={(e) =>
               setTeamFilter(e.target.value === "all" ? "all" : parseInt(e.target.value))
             }
-            className="px-3 py-2 border rounded-lg"
+            className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           >
             <option value="all">All Teams</option>
             {teams.map((team) => (
@@ -518,7 +540,7 @@ const UnclassifiedAppsPage = () => {
           <select
             value={appTypeFilter}
             onChange={(e) => setAppTypeFilter(e.target.value as AppType | "all")}
-            className="px-3 py-2 border rounded-lg"
+            className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           >
             <option value="all">All Types</option>
             <option value="desktop">Desktop</option>
@@ -528,12 +550,13 @@ const UnclassifiedAppsPage = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as UnclassifiedAppStatus | "all")}
-            className="px-3 py-2 border rounded-lg"
+            className="px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           >
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
             <option value="reviewed">Reviewed</option>
             <option value="classified">Classified</option>
+            <option value="archived">Archived</option>
           </select>
         </div>
 

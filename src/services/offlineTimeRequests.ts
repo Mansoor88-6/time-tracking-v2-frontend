@@ -47,8 +47,21 @@ export async function listMyOfflineTimeRequests(
 export async function listPendingOfflineTimeRequests(): Promise<
   OfflineTimeRequestDto[]
 > {
+  return listPendingOfflineTimeRequestsForAdmin();
+}
+
+export async function listPendingOfflineTimeRequestsForAdmin(filters?: {
+  userId?: number;
+  startDate?: string;
+  endDate?: string;
+}): Promise<OfflineTimeRequestDto[]> {
+  const params = new URLSearchParams();
+  if (filters?.userId) params.set("userId", String(filters.userId));
+  if (filters?.startDate) params.set("startDate", filters.startDate);
+  if (filters?.endDate) params.set("endDate", filters.endDate);
+  const q = params.toString();
   return apiClient<OfflineTimeRequestDto[]>(
-    "/api/v1/offline-time-requests/pending"
+    `/api/v1/offline-time-requests/pending${q ? `?${q}` : ""}`
   );
 }
 

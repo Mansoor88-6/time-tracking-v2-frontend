@@ -7,7 +7,8 @@ import { StatCard } from "@/components/ui/StatCard/StatCard";
 import { AppUsageSection, AppUsageItem } from "@/components/ui/AppUsageSection";
 import { ProductivityTimeline } from "@/components/ui/ProductivityTimeline";
 import { MonthlyProductivityCalendar } from "@/components/ui/MonthlyProductivityCalendar/MonthlyProductivityCalendar";
-import { fetchTimelineSlots } from "@/services/timeline";
+import Modal from "@/components/ui/Modal/Modal";
+import { deleteTrackedTimeRange, fetchTimelineSlots } from "@/services/timeline";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createOfflineTimeRequest,
@@ -296,6 +297,9 @@ const OrgDashboardPage = () => {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [usersDropdownOpen, setUsersDropdownOpen] = useState(false);
   const [teamsDropdownOpen, setTeamsDropdownOpen] = useState(false);
+  const [pendingRequestToDelete, setPendingRequestToDelete] =
+    useState<OfflineTimeRequestDto | null>(null);
+  const [pendingRequestDeleting, setPendingRequestDeleting] = useState(false);
 
   // Get user's timezone (default to browser timezone)
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -414,6 +418,23 @@ const OrgDashboardPage = () => {
     staleTime: 30000,
     refetchOnWindowFocus: true,
   });
+
+  const pendingOfflineRequestsForVisibleDay = useMemo(() => {
+    if (!myPendingOfflineRequests?.length || !timelineSlots?.length) return [];
+    const firstSlot = timelineSlots.find((slot) => slot.slotStartUtc);
+    const lastSlot = [...timelineSlots]
+      .reverse()
+      .find((slot) => slot.slotStartUtc);
+    if (!firstSlot?.slotStartUtc || !lastSlot?.slotStartUtc) return [];
+
+    const timelineStartMs = new Date(firstSlot.slotStartUtc).getTime();
+    const timelineEndMs = new Date(lastSlot.slotStartUtc).getTime() + 5 * 60 * 1000;
+    return myPendingOfflineRequests.filter((request) => {
+      const requestStartMs = new Date(request.startAt).getTime();
+      const requestEndMs = new Date(request.endAt).getTime();
+      return requestStartMs < timelineEndMs && requestEndMs > timelineStartMs;
+    });
+  }, [myPendingOfflineRequests, timelineSlots]);
 
   // Fetch app usage stats (aligned with dashboard filters: same date or date range)
   const {
@@ -563,6 +584,52 @@ const OrgDashboardPage = () => {
           : "Failed to submit offline time request";
       toast.error(msg);
       throw err;
+    }
+  };
+
+  const handleTrackedTimeDelete = async (payload: {
+    startAt: string;
+    endAt: string;
+  }) => {
+    try {
+      const result = await deleteTrackedTimeRange(payload);
+      toast.success(
+        `Deleted selected time (${result.deletedEvents} events removed, ${result.trimmedEvents + result.splitEvents} adjusted, ${result.deletedOfflineRequests} pending request${result.deletedOfflineRequests === 1 ? "" : "s"} cleared).`,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["timeline"] }),
+        queryClient.invalidateQueries({ queryKey: ["app-usage"] }),
+        queryClient.invalidateQueries({ queryKey: ["month-calendar"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["offline-time-requests", "mine", "pending"],
+        }),
+      ]);
+      const refreshed = await fetchDashboardStats(
+        dateRange.date,
+        timezone,
+        dateRange.startDate,
+        dateRange.endDate,
+      );
+      setStats(refreshed);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to delete tracked time";
+      toast.error(msg);
+      throw err;
+    }
+  };
+
+  const handlePendingRequestDelete = async () => {
+    if (!pendingRequestToDelete) return;
+    setPendingRequestDeleting(true);
+    try {
+      await handleTrackedTimeDelete({
+        startAt: pendingRequestToDelete.startAt,
+        endAt: pendingRequestToDelete.endAt,
+      });
+      setPendingRequestToDelete(null);
+    } finally {
+      setPendingRequestDeleting(false);
     }
   };
 
@@ -1028,19 +1095,109 @@ const OrgDashboardPage = () => {
         </div>
 
         {showProductivityTimeline ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
             <ProductivityTimeline
               slots={timelineSlots ?? []}
               onOfflineTimeSubmit={handleOfflineTimeSubmit}
               pendingOfflineRanges={
-                myPendingOfflineRequests?.map((r) => ({
+                pendingOfflineRequestsForVisibleDay.map((r) => ({
                   startAt: r.startAt,
                   endAt: r.endAt,
-                })) ?? []
+                }))
               }
+              onTrackedTimeDelete={handleTrackedTimeDelete}
             />
+
+            {pendingOfflineRequestsForVisibleDay.length > 0 ? (
+              <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-800 dark:bg-sky-950/20">
+                <div className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Pending offline requests for this day
+                </div>
+                <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">
+                  To change a request, use Delete tracked time on the relevant
+                  bars. Any overlapping pending request will be removed, and you
+                  can submit the time again.
+                </p>
+                <div className="space-y-2">
+                  {pendingOfflineRequestsForVisibleDay.map((request) => (
+                    <div
+                      key={request.id}
+                      className="flex flex-col gap-3 rounded-md bg-white p-3 text-sm shadow-sm dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <div className="font-medium text-slate-900 dark:text-slate-100">
+                          {new Date(request.startAt).toLocaleString()} -{" "}
+                          {new Date(request.endAt).toLocaleString()}
+                        </div>
+                        <div className="mt-1 text-xs capitalize text-slate-500 dark:text-slate-400">
+                          {request.category} · {request.description}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPendingRequestToDelete(request)}
+                        className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/40"
+                      >
+                        Delete request
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
+
+        <Modal
+          isOpen={!!pendingRequestToDelete}
+          onClose={() => {
+            if (!pendingRequestDeleting) setPendingRequestToDelete(null);
+          }}
+          title="Delete offline request?"
+          size="sm"
+          closeOnOverlayClick={!pendingRequestDeleting}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              This removes the pending offline time request and frees that time
+              so you can submit a corrected request.
+            </p>
+            {pendingRequestToDelete ? (
+              <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <div>
+                  <span className="font-medium">From:</span>{" "}
+                  {new Date(pendingRequestToDelete.startAt).toLocaleString()}
+                </div>
+                <div>
+                  <span className="font-medium">To:</span>{" "}
+                  {new Date(pendingRequestToDelete.endAt).toLocaleString()}
+                </div>
+                <div className="mt-2 text-xs capitalize text-slate-500 dark:text-slate-400">
+                  {pendingRequestToDelete.category} ·{" "}
+                  {pendingRequestToDelete.description}
+                </div>
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingRequestToDelete(null)}
+                disabled={pendingRequestDeleting}
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handlePendingRequestDelete()}
+                disabled={pendingRequestDeleting}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {pendingRequestDeleting ? "Deleting..." : "Delete request"}
+              </button>
+            </div>
+          </div>
+        </Modal>
 
         {/* App Usage Sections */}
         <div className="space-y-4">

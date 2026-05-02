@@ -63,3 +63,19 @@ export async function fetchTimelineSlots(
   }));
 }
 
+export async function deleteTrackedTimeRange(body: {
+  startAt: string;
+  endAt: string;
+}): Promise<{
+  ok: boolean;
+  deletedEvents: number;
+  trimmedEvents: number;
+  splitEvents: number;
+  deletedOfflineRequests: number;
+}> {
+  return apiClient("/api/v1/dashboard/tracked-time/delete", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+

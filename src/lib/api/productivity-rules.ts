@@ -2,7 +2,11 @@ import { apiClient } from "../apiClient";
 
 export type AppType = "desktop" | "web";
 export type AppCategory = "productive" | "unproductive" | "neutral";
-export type UnclassifiedAppStatus = "pending" | "reviewed" | "classified";
+export type UnclassifiedAppStatus =
+  | "pending"
+  | "reviewed"
+  | "classified"
+  | "archived";
 
 export interface TeamProductivityRule {
   id: number;
@@ -118,5 +122,14 @@ export const productivityRulesApi = {
       method: "POST",
       body: JSON.stringify(data),
     });
+  },
+
+  archiveUnclassified: async (id: number): Promise<UnclassifiedApp> => {
+    return apiClient<UnclassifiedApp>(
+      `/productivity-rules/unclassified/${id}/archive`,
+      {
+        method: "PATCH",
+      }
+    );
   },
 };

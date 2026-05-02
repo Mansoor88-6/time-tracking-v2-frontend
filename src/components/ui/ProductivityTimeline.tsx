@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { OfflineTimeRequestModal } from "@/components/ui/OfflineTimeRequestModal";
+import Modal from "@/components/ui/Modal/Modal";
 import { formatDuration } from "@/services/dashboardStats";
 import {
   computeClaimableIntervalsIso,
@@ -70,6 +71,8 @@ export interface ProductivityTimelineProps {
   }) => Promise<void>;
   /** Pending offline-time requests (sky tint on overlapping slots until approved). */
   pendingOfflineRanges?: { startAt: string; endAt: string }[];
+  /** Optional tracked-time deletion handler. When provided, users can select bars and delete their own tracked time. */
+  onTrackedTimeDelete?: (payload: { startAt: string; endAt: string }) => Promise<void>;
 }
 
 const TOTAL_MINUTES = 24 * 60;
@@ -206,6 +209,7 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
   slots,
   onOfflineTimeSubmit,
   pendingOfflineRanges = [],
+  onTrackedTimeDelete,
 }) => {
   const resolvedSlots = useMemo(() => slots ?? generateMockSlots(), [slots]);
 
@@ -241,6 +245,10 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
     hi: number;
   } | null>(null);
   const [offlineSubmitting, setOfflineSubmitting] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleteRange, setDeleteRange] = useState<{ lo: number; hi: number } | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const offlineModalConstraints = useMemo(() => {
     if (!offlineModalRange) return null;
@@ -382,9 +390,21 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       dragRef.current = null;
       setDragAnchor(null);
       setDragCurrent(null);
-      if (!d || !onOfflineTimeSubmit) return;
+      if (!d) return;
       const lo = Math.min(d.anchor, d.current);
       const hi = Math.max(d.anchor, d.current);
+      if (deleteMode && onTrackedTimeDelete) {
+        const hasDeletableItem = resolvedSlots
+          .slice(lo, hi + 1)
+          .some((slot, offset) => slot.online || pendingSlotIndexSet.has(lo + offset));
+        if (!hasDeletableItem) {
+          toast.error("No tracked time or pending request in this selection.");
+          return;
+        }
+        setDeleteRange({ lo, hi });
+        return;
+      }
+      if (!onOfflineTimeSubmit) return;
       const claimable = computeClaimableIntervalsIso(
         resolvedSlots,
         lo,
@@ -405,7 +425,38 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [dragAnchor, onOfflineTimeSubmit, resolvedSlots, clientXToSlotIndex, pendingOfflineRanges]);
+  }, [dragAnchor, onOfflineTimeSubmit, onTrackedTimeDelete, deleteMode, resolvedSlots, pendingSlotIndexSet, clientXToSlotIndex, pendingOfflineRanges]);
+
+  const deleteBounds = useMemo(() => {
+    if (!deleteRange) return null;
+    return slotRangeToIsoBounds(resolvedSlots, deleteRange.lo, deleteRange.hi);
+  }, [deleteRange, resolvedSlots]);
+
+  const overlappingPendingCount = useMemo(() => {
+    if (!deleteBounds) return 0;
+    const startMs = new Date(deleteBounds.startIso).getTime();
+    const endMs = new Date(deleteBounds.endIso).getTime();
+    return pendingOfflineRanges.filter((range) => {
+      const pending = getPendingRangeMs(range);
+      return pending !== null && startMs < pending.re && endMs > pending.rs;
+    }).length;
+  }, [deleteBounds, pendingOfflineRanges]);
+
+  const handleDeleteSelectedTime = useCallback(async () => {
+    if (!deleteBounds || !onTrackedTimeDelete) return;
+    setDeleteSubmitting(true);
+    try {
+      await onTrackedTimeDelete({
+        startAt: deleteBounds.startIso,
+        endAt: deleteBounds.endIso,
+      });
+      setDeleteRange(null);
+      setDeleteMode(false);
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  }, [deleteBounds, onTrackedTimeDelete]);
 
   const yTicks = TIMELINE_Y_AXIS_TICKS;
 
@@ -448,6 +499,41 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
         </p>
       ) : null}
 
+      {onTrackedTimeDelete ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteMode((v) => !v);
+              setDeleteRange(null);
+            }}
+            className={cn(
+              "rounded-md px-3 py-1.5 font-medium transition-colors",
+              deleteMode
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800",
+            )}
+          >
+            {deleteMode ? "Cancel delete selection" : "Delete tracked time"}
+          </button>
+          {deleteMode ? (
+            <span className="text-slate-500 dark:text-slate-400">
+              Drag over tracked bars, then press Delete selected.
+            </span>
+          ) : null}
+          {deleteBounds ? (
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(true)}
+              disabled={deleteSubmitting}
+              className="rounded-md bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Delete selected
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         ref={scrollContainerRef}
         className="timeline-h-scrollbar-thin overflow-x-auto"
@@ -486,18 +572,22 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
                   index={index}
                   barWidthPx={SLOT_BAR_WIDTH_PX}
                   selected={
-                    selectionLo !== null &&
-                    selectionHi !== null &&
-                    index >= selectionLo &&
-                    index <= selectionHi
+                    (selectionLo !== null &&
+                      selectionHi !== null &&
+                      index >= selectionLo &&
+                      index <= selectionHi) ||
+                    (deleteRange !== null &&
+                      index >= deleteRange.lo &&
+                      index <= deleteRange.hi)
                   }
                   pendingOverlay={pendingSlotIndexSet.has(index)}
-                  enableOfflineDrag={!!onOfflineTimeSubmit}
+                  enableOfflineDrag={!!onOfflineTimeSubmit || !!onTrackedTimeDelete}
                   onHover={handleBarHover}
                   onHoverMove={handleBarMove}
                   onLeave={handleBarLeave}
                   onDragPointerDown={(idx) => {
-                    if (!onOfflineTimeSubmit) return;
+                    if (!onOfflineTimeSubmit && !onTrackedTimeDelete) return;
+                    if (onTrackedTimeDelete && !deleteMode && !onOfflineTimeSubmit) return;
                     dragRef.current = { anchor: idx, current: idx };
                     setDragAnchor(idx);
                     setDragCurrent(idx);
@@ -740,6 +830,57 @@ export const ProductivityTimeline: React.FC<ProductivityTimelineProps> = ({
           }}
         />
       ) : null}
+
+      <Modal
+        isOpen={deleteConfirmOpen}
+        onClose={() => {
+          if (!deleteSubmitting) setDeleteConfirmOpen(false);
+        }}
+        title="Delete selected time?"
+        size="sm"
+        closeOnOverlayClick={!deleteSubmitting}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            This will remove tracked activity from the selected bars and update
+            your reports. Any pending offline request overlapping the selection
+            will also be removed so you can request that time again.
+          </p>
+          {deleteBounds ? (
+            <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+              <div>
+                <span className="font-medium">From:</span>{" "}
+                {new Date(deleteBounds.startIso).toLocaleString()}
+              </div>
+              <div>
+                <span className="font-medium">To:</span>{" "}
+                {new Date(deleteBounds.endIso).toLocaleString()}
+              </div>
+              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Overlapping pending requests: {overlappingPendingCount}
+              </div>
+            </div>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={deleteSubmitting}
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDeleteSelectedTime()}
+              disabled={deleteSubmitting}
+              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleteSubmitting ? "Deleting..." : "Delete time"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
