@@ -84,11 +84,11 @@ export const theme: ThemeColors = {
     },
     neutral: {
       bg: "bg-white dark:bg-[#1c1c2e]",
-      border: "border-violet-300 dark:border-violet-700/50",
+      border: "border-slate-500 dark:border-slate-600/60",
       text: "text-slate-900 dark:text-slate-100",
-      icon: "text-violet-600 dark:text-violet-400",
-      badge: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300",
-      accent: "border-l-4 border-l-violet-500 dark:border-l-violet-400",
+      icon: "text-slate-700 dark:text-slate-300",
+      badge: "bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-slate-100",
+      accent: "border-l-4 border-l-slate-600 dark:border-l-slate-500",
     },
   },
   palette: {

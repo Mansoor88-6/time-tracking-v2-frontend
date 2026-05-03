@@ -31,7 +31,7 @@ import { ruleCollectionsApi } from "@/lib/api/rule-collections";
 import { GettingStartedCard } from "@/components/admin/GettingStartedCard";
 // Using string literals for role comparison since UserRole has a naming conflict
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
-import { BiX, BiUser, BiGroup, BiChevronDown } from "react-icons/bi";
+import { BiX, BiUser, BiGroup, BiChevronDown, BiWallet } from "react-icons/bi";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -52,12 +52,14 @@ import {
   getDateRangeForPeriod,
   shouldShowLeftTime,
   getTodayLocalDateString,
+  formatPeriodDate,
 } from "@/utils/dateRange";
 import { getColorClassesUtil } from "@/theme/utils";
 import {
   getIndividualStatTooltip,
   getOrgStatTooltip,
 } from "@/utils/dashboardStatTooltips";
+import { WageDrawer } from "@/components/ui/WageDrawer/WageDrawer";
 
 type DashboardStat = {
   label: string;
@@ -300,6 +302,7 @@ const OrgDashboardPage = () => {
   const [pendingRequestToDelete, setPendingRequestToDelete] =
     useState<OfflineTimeRequestDto | null>(null);
   const [pendingRequestDeleting, setPendingRequestDeleting] = useState(false);
+  const [wageDrawerOpen, setWageDrawerOpen] = useState(false);
 
   // Get user's timezone (default to browser timezone)
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -322,6 +325,16 @@ const OrgDashboardPage = () => {
   };
 
   const useRange = !!dateRange.startDate && !!dateRange.endDate;
+
+  /** Calendar month containing the dashboard navigation date (for wage drawer). */
+  const wageMonthRange = useMemo(
+    () => getDateRangeForPeriod(currentDate, "month"),
+    [currentDate]
+  );
+  const wagePeriodLabelMemo = useMemo(
+    () => formatPeriodDate(currentDate, "month"),
+    [currentDate]
+  );
 
   const showLeftTimeValue = useMemo(
     () =>
@@ -600,6 +613,7 @@ const OrgDashboardPage = () => {
         queryClient.invalidateQueries({ queryKey: ["timeline"] }),
         queryClient.invalidateQueries({ queryKey: ["app-usage"] }),
         queryClient.invalidateQueries({ queryKey: ["month-calendar"] }),
+        queryClient.invalidateQueries({ queryKey: ["wage-summary"] }),
         queryClient.invalidateQueries({
           queryKey: ["offline-time-requests", "mine", "pending"],
         }),
@@ -644,6 +658,11 @@ const OrgDashboardPage = () => {
       return 'TODAY';
     };
 
+    /** Week/month/multi-day: user list is the source of truth; hide user-count KPI. */
+    const orgShowUserCountCard =
+      period === "day" &&
+      !(customStartDate && customEndDate && customStartDate !== customEndDate);
+
     const orgDashboardStats: DashboardStat[] = aggregatedStats
       ? [
           {
@@ -660,12 +679,16 @@ const OrgDashboardPage = () => {
             progressColor: "pink" as const,
             infoTooltip: getOrgStatTooltip("Average Productivity Score"),
           },
-          {
-            label: "Total Active Users",
-            value: aggregatedStats.activeUsers,
-            subtitle: `of ${aggregatedStats.totalUsers} users`,
-            infoTooltip: getOrgStatTooltip("Total Active Users"),
-          },
+          ...(orgShowUserCountCard
+            ? [
+                {
+                  label: "Users with tracked time",
+                  value: aggregatedStats.activeUsers,
+                  subtitle: `of ${aggregatedStats.totalUsers} users`,
+                  infoTooltip: getOrgStatTooltip("Users with tracked time"),
+                } satisfies DashboardStat,
+              ]
+            : []),
           {
             label: "Average Effectiveness",
             value: `${Math.round(aggregatedStats.averageEffectiveness)}%`,
@@ -978,7 +1001,7 @@ const OrgDashboardPage = () => {
           {/* Aggregated Stat Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             {isLoadingOrg ? (
-              Array.from({ length: 5 }).map((_, index) => (
+              Array.from({ length: orgShowUserCountCard ? 5 : 4 }).map((_, index) => (
                 <div
                   key={index}
                   className="flex items-center p-6 rounded-2xl bg-stat stat-card-hover card-shadow-lg animate-pulse"
@@ -1019,7 +1042,15 @@ const OrgDashboardPage = () => {
                 Individual time tracking statistics for each user
                 {showProductivityTimeline
                   ? " — arrival and left time columns apply to this day only; left time is shown for past days, not the current day."
-                  : ""}
+                  : period === "week"
+                    ? " — all users in scope are listed; values are totals for the selected week (Monday–Sunday)."
+                    : period === "month"
+                      ? " — all users in scope are listed; values are totals for the selected calendar month."
+                      : customStartDate &&
+                          customEndDate &&
+                          customStartDate !== customEndDate
+                        ? " — all users in scope are listed; values are totals for the selected date range."
+                        : ""}
               </p>
             </div>
             <AdminDataTable
@@ -1039,8 +1070,16 @@ const OrgDashboardPage = () => {
     <AuthGuard>
       <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-end gap-4 w-full">
-              <div className="flex flex-wrap items-center gap-4 justify-end">
-                <PeriodSelector 
+            <div className="flex flex-wrap items-center gap-4 justify-end">
+              <button
+                type="button"
+                onClick={() => setWageDrawerOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                <BiWallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                My compensation
+              </button>
+              <PeriodSelector
                   period={period} 
                   onPeriodChange={setPeriod}
                   disabled={!!(customStartDate && customEndDate)}
@@ -1271,6 +1310,17 @@ const OrgDashboardPage = () => {
                   : "Failed to load month overview"
                 : null
             }
+          />
+        ) : null}
+
+        {wageMonthRange.startDate && wageMonthRange.endDate ? (
+          <WageDrawer
+            open={wageDrawerOpen}
+            onClose={() => setWageDrawerOpen(false)}
+            startDate={wageMonthRange.startDate}
+            endDate={wageMonthRange.endDate}
+            timezone={timezone}
+            periodLabel={wagePeriodLabelMemo}
           />
         ) : null}
       </div>

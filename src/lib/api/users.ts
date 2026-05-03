@@ -1,5 +1,7 @@
 import { apiClient } from "../apiClient";
 
+export type WageCurrency = "PKR" | "USD";
+
 export interface User {
   id: number;
   email: string;
@@ -11,6 +13,9 @@ export interface User {
   createdAt?: string;
   updatedAt?: string;
   teams?: { id: number; name: string }[];
+  dailyWorkingHours?: number | null;
+  monthlyWage?: number | null;
+  wageCurrency?: WageCurrency | null;
 }
 
 export interface CreateUserDto {
@@ -18,6 +23,9 @@ export interface CreateUserDto {
   email: string;
   password: string;
   role?: string;
+  dailyWorkingHours?: number;
+  monthlyWage?: number;
+  wageCurrency?: WageCurrency;
 }
 
 export interface UpdateUserDto {
@@ -26,6 +34,9 @@ export interface UpdateUserDto {
   displayName?: string;
   password?: string;
   isActive?: boolean;
+  dailyWorkingHours?: number | null;
+  monthlyWage?: number | null;
+  wageCurrency?: WageCurrency | null;
 }
 
 export interface UpdateUserRoleDto {

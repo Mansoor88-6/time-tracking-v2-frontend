@@ -84,7 +84,8 @@ const SLOT_BAR_GAP_PX = 2;
 
 // Colors aligned with the provided design and existing palette
 const PRODUCTIVE_COLOR = "#6BBF4E";
-const NEUTRAL_COLOR = "#D0D0D0";
+/** Dark grey — distinct from idle/untracked (light slate) and readable on the chart */
+const NEUTRAL_COLOR = "#475569";
 const UNPRODUCTIVE_COLOR = "#E07A5F";
 /** Same light fill as untracked slots — idle time is not a separate “category” color */
 const IDLE_UNTRACKED_BAR_CLASS =

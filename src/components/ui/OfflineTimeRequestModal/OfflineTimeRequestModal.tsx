@@ -556,7 +556,7 @@ export function OfflineTimeRequestModal({
               [
                 ["productive", "Productive", "bg-emerald-500"],
                 ["unproductive", "Unproductive", "bg-orange-500"],
-                ["neutral", "Neutral", "bg-slate-400"],
+                ["neutral", "Neutral", "bg-slate-600"],
               ] as const
             ).map(([value, label, swatch]) => (
               <label

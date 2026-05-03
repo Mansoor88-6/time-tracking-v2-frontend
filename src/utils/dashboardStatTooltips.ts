@@ -32,9 +32,9 @@ export function getIndividualStatTooltip(
 export function getOrgStatTooltip(label: string): string | undefined {
   const map: Record<string, string> = {
     "Total Productive Time": `Sum of productive time across users included in the current filters.`,
-    "Average Productivity Score": `Mean productivity score across those users for the selected period.`,
-    "Total Active Users": `How many users had tracked activity in the selected period, compared to all users in scope.`,
-    "Average Effectiveness": `Mean effectiveness across filtered users for the selected period.`,
+    "Average Productivity Score": `Mean productivity score across users who had any tracked time in the selected period (users with no tracking are excluded from the average).`,
+    "Users with tracked time": `How many users had any tracked activity in the selected period, out of all users in scope (same users as the table below).`,
+    "Average Effectiveness": `Mean effectiveness across users who had any tracked time in the selected period (users with no tracking are excluded from the average).`,
     "Total Projects Time": `Sum of project-attributed time across users matching the current filters.`,
   };
 

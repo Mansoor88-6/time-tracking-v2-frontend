@@ -6,14 +6,15 @@ import { DataToolbar } from "@/components/admin/DataToolbar";
 import { AdminDataTable, AdminTableColumn } from "@/components/admin/AdminDataTable";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { ModalForm } from "@/components/admin/ModalForm";
-import { usersApi, User } from "@/lib/api/users";
+import { usersApi, User, type WageCurrency } from "@/lib/api/users";
 import { teamsApi, Team } from "@/lib/api/teams";
 import { invitationsApi, Invitation } from "@/lib/api/invitations";
+import { formatWageAmount } from "@/services/wageSummary";
 import { useAppSelector } from "@/redux/hooks";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { FloatingInput } from "@/components/ui/Input/FloatingInput";
-import { BiTrash, BiKey, BiGroup, BiPlus } from "react-icons/bi";
+import { BiTrash, BiKey, BiGroup, BiPlus, BiWallet } from "react-icons/bi";
 import { toast } from "react-toastify";
 
 interface PasswordFormData {
@@ -34,6 +35,16 @@ interface CreateUserFormData {
   confirmPassword: string;
   role: string;
   teamIds?: number[];
+  dailyWorkingHours: string;
+  monthlyWage: string;
+  wageCurrency: WageCurrency;
+}
+
+interface CompensationFormData {
+  dailyWorkingHours: string;
+  monthlyWage: string;
+  wageCurrency: WageCurrency;
+  clearCompensation: boolean;
 }
 
 const UsersPage = () => {
@@ -61,6 +72,10 @@ const UsersPage = () => {
     email: string;
     password: string;
   } | null>(null);
+  const [isCompensationModalOpen, setIsCompensationModalOpen] = useState(false);
+  const [userForCompensation, setUserForCompensation] = useState<User | null>(
+    null
+  );
 
   const {
     register,
@@ -87,9 +102,30 @@ const UsersPage = () => {
     setValue: setValueCreateUser,
     formState: { errors: errorsCreateUser, isSubmitting: isSubmittingCreateUser },
   } = useForm<CreateUserFormData>({
-    defaultValues: { role: "EMPLOYEE" },
+    defaultValues: {
+      role: "EMPLOYEE",
+      dailyWorkingHours: "",
+      monthlyWage: "",
+      wageCurrency: "USD",
+    },
   });
   const watchedCreateUserTeamIds = watchCreateUser("teamIds") || [];
+
+  const {
+    register: registerComp,
+    handleSubmit: handleSubmitComp,
+    reset: resetComp,
+    watch: watchComp,
+    formState: { errors: errorsComp, isSubmitting: isSubmittingComp },
+  } = useForm<CompensationFormData>({
+    defaultValues: {
+      dailyWorkingHours: "",
+      monthlyWage: "",
+      wageCurrency: "USD",
+      clearCompensation: false,
+    },
+  });
+  const clearCompensationWatch = watchComp("clearCompensation");
 
   const loadUsers = async () => {
     try {
@@ -169,7 +205,12 @@ const UsersPage = () => {
   const openCreateUserModal = async () => {
     setIsCreateUserModalOpen(true);
     setCreatedCredentials(null);
-    resetCreateUser({ role: "EMPLOYEE" });
+    resetCreateUser({
+      role: "EMPLOYEE",
+      dailyWorkingHours: "",
+      monthlyWage: "",
+      wageCurrency: "USD",
+    });
     try {
       const data = await teamsApi.list();
       setCreateUserTeams(data);
@@ -196,11 +237,26 @@ const UsersPage = () => {
       return;
     }
     try {
+      const hours = parseFloat(data.dailyWorkingHours);
+      const wage = parseFloat(data.monthlyWage);
+      const hasCompensation =
+        Number.isFinite(hours) &&
+        Number.isFinite(wage) &&
+        hours > 0 &&
+        wage > 0;
+
       const created = await usersApi.create({
         name: data.name,
         email: data.email,
         password: data.password,
         role: data.role || "EMPLOYEE",
+        ...(hasCompensation
+          ? {
+              dailyWorkingHours: hours,
+              monthlyWage: wage,
+              wageCurrency: data.wageCurrency,
+            }
+          : {}),
       });
       const teamIds = data.teamIds || [];
       if (teamIds.length > 0) {
@@ -289,6 +345,58 @@ const UsersPage = () => {
     setSelectedUser(target);
     reset();
     setIsPasswordModalOpen(true);
+  };
+
+  const openCompensationModal = (target: User) => {
+    setUserForCompensation(target);
+    const has =
+      target.dailyWorkingHours != null &&
+      target.monthlyWage != null &&
+      target.wageCurrency != null;
+    resetComp({
+      dailyWorkingHours: has ? String(target.dailyWorkingHours) : "",
+      monthlyWage: has ? String(target.monthlyWage) : "",
+      wageCurrency: (target.wageCurrency as WageCurrency) ?? "USD",
+      clearCompensation: false,
+    });
+    setIsCompensationModalOpen(true);
+  };
+
+  const handleCompensationSubmit = async (data: CompensationFormData) => {
+    if (!userForCompensation) return;
+    try {
+      if (data.clearCompensation) {
+        await usersApi.update(userForCompensation.id, {
+          dailyWorkingHours: null,
+          monthlyWage: null,
+          wageCurrency: null,
+        });
+      } else {
+        const hours = parseFloat(data.dailyWorkingHours);
+        const wage = parseFloat(data.monthlyWage);
+        if (!Number.isFinite(hours) || hours <= 0) {
+          toast.error("Enter daily working hours greater than 0");
+          return;
+        }
+        if (!Number.isFinite(wage) || wage <= 0) {
+          toast.error("Enter monthly wage greater than 0");
+          return;
+        }
+        await usersApi.update(userForCompensation.id, {
+          dailyWorkingHours: hours,
+          monthlyWage: wage,
+          wageCurrency: data.wageCurrency,
+        });
+      }
+      toast.success("Compensation saved");
+      setIsCompensationModalOpen(false);
+      setUserForCompensation(null);
+      await loadUsers();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update compensation"
+      );
+    }
   };
 
   const openTeamsModal = async (target: User) => {
@@ -417,6 +525,30 @@ const UsersPage = () => {
       },
     },
     {
+      key: "monthlyWage",
+      label: "Compensation",
+      sortable: true,
+      render: (row) => {
+        if (
+          row.monthlyWage == null ||
+          row.wageCurrency == null ||
+          row.dailyWorkingHours == null
+        ) {
+          return <span className="text-slate-400">—</span>;
+        }
+        return (
+          <div className="text-sm">
+            <div className="font-medium text-slate-800 dark:text-slate-200">
+              {formatWageAmount(row.monthlyWage, row.wageCurrency)}/mo
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {row.dailyWorkingHours}h/day · {row.wageCurrency}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
       key: "createdAt",
       label: "Joined",
       sortable: true,
@@ -486,6 +618,16 @@ const UsersPage = () => {
           emptyMessage="No users found in your organization."
           rowActions={(row) => (
             <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openCompensationModal(row);
+                }}
+                className="text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                title="Compensation"
+              >
+                <BiWallet className="w-4 h-4" />
+              </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -562,6 +704,72 @@ const UsersPage = () => {
           />
         </ModalForm>
 
+        {/* Compensation */}
+        <ModalForm
+          isOpen={isCompensationModalOpen}
+          onClose={() => {
+            setIsCompensationModalOpen(false);
+            setUserForCompensation(null);
+            resetComp();
+          }}
+          onSubmit={handleSubmitComp(handleCompensationSubmit)}
+          title={
+            userForCompensation
+              ? `Compensation — ${userForCompensation.name ?? userForCompensation.email}`
+              : "Compensation"
+          }
+          description="Monthly wage and expected daily hours define an implied hourly rate. The employee dashboard uses productive time in the month to show estimated earnings."
+          isLoading={isSubmittingComp}
+          size="md"
+          submitVariant="primary"
+          submitLabel="Save compensation"
+        >
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              {...registerComp("clearCompensation")}
+              className="rounded border-slate-300"
+            />
+            Clear compensation (remove wage settings for this user)
+          </label>
+          <div
+            className={`space-y-3 ${clearCompensationWatch ? "pointer-events-none opacity-40" : ""}`}
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FloatingInput
+                {...registerComp("dailyWorkingHours")}
+                label="Daily working hours"
+                id="comp-daily-hours"
+                type="text"
+                placeholder="8"
+                error={errorsComp.dailyWorkingHours?.message}
+                disabled={clearCompensationWatch}
+              />
+              <FloatingInput
+                {...registerComp("monthlyWage")}
+                label="Monthly wage (gross)"
+                id="comp-monthly-wage"
+                type="text"
+                disabled={clearCompensationWatch}
+                error={errorsComp.monthlyWage?.message}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Currency
+              </label>
+              <select
+                {...registerComp("wageCurrency")}
+                disabled={clearCompensationWatch}
+                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+              >
+                <option value="USD">USD ($)</option>
+                <option value="PKR">PKR (₨)</option>
+              </select>
+            </div>
+          </div>
+        </ModalForm>
+
         {/* Create User Modal */}
         <ModalForm
           isOpen={isCreateUserModalOpen}
@@ -581,7 +789,7 @@ const UsersPage = () => {
               : "Create a user with a password and share the credentials with them later."
           }
           isLoading={!createdCredentials && isSubmittingCreateUser}
-          size="md"
+          size="lg"
           submitVariant="primary"
           submitLabel={createdCredentials ? "Done" : "Create user"}
           cancelLabel={createdCredentials ? undefined : "Cancel"}
@@ -669,6 +877,45 @@ const UsersPage = () => {
                     {errorsCreateUser.role.message}
                   </p>
                 )}
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-600 dark:bg-slate-800/40">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                  Compensation (optional)
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Set monthly wage, expected daily productive hours, and currency.
+                  Leave blank to configure later in user management.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <FloatingInput
+                    {...registerCreateUser("dailyWorkingHours")}
+                    label="Daily hours (e.g. 7 or 8)"
+                    id="create-user-daily-hours"
+                    type="text"
+                    placeholder="8"
+                    error={errorsCreateUser.dailyWorkingHours?.message}
+                  />
+                  <FloatingInput
+                    {...registerCreateUser("monthlyWage")}
+                    label="Monthly wage"
+                    id="create-user-monthly-wage"
+                    type="text"
+                    placeholder="150000"
+                    error={errorsCreateUser.monthlyWage?.message}
+                  />
+                </div>
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Currency
+                  </label>
+                  <select
+                    {...registerCreateUser("wageCurrency")}
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+                  >
+                    <option value="USD">USD ($)</option>
+                    <option value="PKR">PKR (₨)</option>
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">

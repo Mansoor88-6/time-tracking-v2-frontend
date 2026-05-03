@@ -31,10 +31,11 @@ import {
   getDateRangeForPeriod,
   shouldShowLeftTime,
   getTodayLocalDateString,
+  formatPeriodDate,
 } from "@/utils/dateRange";
 import { getIndividualStatTooltip } from "@/utils/dashboardStatTooltips";
 import { PageHeader } from "@/components/admin/PageHeader";
-import { BiUser, BiChevronDown } from "react-icons/bi";
+import { BiUser, BiChevronDown, BiWallet } from "react-icons/bi";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -43,6 +44,7 @@ import {
 } from "@/components/ui/DropdownMenu/DropdownMenu";
 import type { AppUsageItem } from "@/components/ui/AppUsageSection";
 import { listPendingOfflineTimeRequests } from "@/services/offlineTimeRequests";
+import { WageDrawer } from "@/components/ui/WageDrawer/WageDrawer";
 
 type DashboardStat = {
   label: string;
@@ -240,6 +242,7 @@ const UserViewPage = () => {
   const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [wageDrawerOpen, setWageDrawerOpen] = useState(false);
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -248,6 +251,15 @@ const UserViewPage = () => {
       return { startDate: customStartDate, endDate: customEndDate };
     return getDateRangeForPeriod(currentDate, period);
   }, [customStartDate, customEndDate, currentDate, period]);
+
+  const wageMonthRange = useMemo(
+    () => getDateRangeForPeriod(currentDate, "month"),
+    [currentDate]
+  );
+  const wagePeriodLabelMemo = useMemo(
+    () => formatPeriodDate(currentDate, "month"),
+    [currentDate]
+  );
 
   const showLeftTimeValue = useMemo(
     () =>
@@ -508,6 +520,14 @@ const UserViewPage = () => {
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-3 justify-end ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setWageDrawerOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <BiWallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  Compensation
+                </button>
                 <PeriodSelector
                   period={period}
                   onPeriodChange={setPeriod}
@@ -662,6 +682,20 @@ const UserViewPage = () => {
                       : "Failed to load month overview"
                     : null
                 }
+              />
+            ) : null}
+
+            {selectedUserId != null &&
+            wageMonthRange.startDate &&
+            wageMonthRange.endDate ? (
+              <WageDrawer
+                open={wageDrawerOpen}
+                onClose={() => setWageDrawerOpen(false)}
+                startDate={wageMonthRange.startDate}
+                endDate={wageMonthRange.endDate}
+                timezone={timezone}
+                periodLabel={wagePeriodLabelMemo}
+                viewAsUserId={selectedUserId}
               />
             ) : null}
           </>
